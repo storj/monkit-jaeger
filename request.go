@@ -2,12 +2,12 @@
 // Copyright (C) 2014 Space Monkey, Inc.
 // See LICENSE for copying information.
 
-package zipkin
+package jaeger
 
 import (
 	"strconv"
 
-	"gopkg.in/spacemonkeygo/monkit.v2"
+	"github.com/spacemonkeygo/monkit/v3"
 )
 
 // Request is a structure representing an incoming RPC request. Every field

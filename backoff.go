@@ -2,7 +2,7 @@
 // Copyright (C) 2014 Space Monkey, Inc.
 // See LICENSE for copying information.
 
-package zipkin
+package jaeger
 
 import "time"
 

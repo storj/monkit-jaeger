@@ -2,15 +2,14 @@
 // Copyright (C) 2014 Space Monkey, Inc.
 // See LICENSE for copying information.
 
-package zipkin
+package jaeger
 
 import (
 	"fmt"
 	"time"
 
-	"github.com/spacemonkeygo/errors"
-	"gopkg.in/spacemonkeygo/monkit-zipkin.v2/gen-go/zipkin"
-	monkit "gopkg.in/spacemonkeygo/monkit.v2"
+	"github.com/spacemonkeygo/monkit/v3"
+	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
 type traceKey int
@@ -22,16 +21,16 @@ const (
 )
 
 type Options struct {
-	Fraction  float64          // The Fraction of traces to observe.
-	Debug     bool             // Whether to set the debug flag on new traces.
-	LocalHost *zipkin.Endpoint // What set as the local zipkin.Endpoint
+	Fraction float64         // The Fraction of traces to observe.
+	Debug    bool            // Whether to set the debug flag on new traces.
+	Process  *jaeger.Process // What set as the local zipkin.Endpoint
 
 	collector TraceCollector
 }
 
-// RegisterZipkin configures the given Registry reg to send the Spans from some
+// RegisterJaeger configures the given Registry reg to send the Spans from some
 // portion of all new Traces to the given TraceCollector.
-func RegisterZipkin(reg *monkit.Registry, collector TraceCollector,
+func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 	opts Options) {
 	opts.collector = collector
 	reg.ObserveTraces(func(t *monkit.Trace) {
@@ -77,72 +76,41 @@ func getParentId(s *monkit.Span) (parent_id *int64, server bool) {
 
 func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 	finish time.Time) {
-	parent_id, server := getParentId(s)
-	zs := &zipkin.Span{
-		TraceID:  s.Trace().Id(),
-		Name:     s.Func().FullName(),
-		ID:       s.Id(),
-		ParentID: parent_id,
+	parent_id, _ := getParentId(s)
+	startTime := s.Start().UnixNano() / 1000
+
+	js := &jaeger.Span{
+		TraceIdLow:    s.Trace().Id(),
+		TraceIdHigh:   0,
+		OperationName: s.Func().FullName(),
+		SpanId:        s.Id(),
+		StartTime:     startTime,
+		Duration:      s.Duration().Microseconds(),
+	}
+	if parent_id != nil {
+		js.ParentSpanId = *parent_id
 	}
 
-	start_name := zipkin.CLIENT_SEND
-	end_name := zipkin.CLIENT_RECV
-	if server {
-		start_name = zipkin.SERVER_RECV
-		end_name = zipkin.SERVER_SEND
+	tags := make([]*jaeger.Tag, 0, len(s.Annotations())+len(s.Args()))
+	for _, annotation := range s.Annotations() {
+		annotation := annotation
+		tags = append(tags, &jaeger.Tag{
+			Key:   annotation.Name,
+			VType: jaeger.TagType_STRING,
+			VStr:  &annotation.Value,
+		})
 	}
 
-	annotations := s.Annotations()
-	args := s.Args()
+	for arg_idx, arg := range s.Args() {
+		arg := arg
+		tags = append(tags, &jaeger.Tag{
+			Key:   fmt.Sprintf("arg_%d", arg_idx),
+			VType: jaeger.TagType_STRING,
+			VStr:  &arg,
+		})
+	}
 
-	zs.Annotations = make([]*zipkin.Annotation, 0, 4)
-	zs.BinaryAnnotations = make([]*zipkin.BinaryAnnotation, 0,
-		len(annotations)+len(args)+1)
+	js.Tags = tags
 
-	zs.Annotations = append(zs.Annotations, &zipkin.Annotation{
-		Timestamp: s.Start().UnixNano() / 1000,
-		Value:     start_name,
-		Host:      opts.LocalHost})
-	for arg_idx, arg := range args {
-		zs.BinaryAnnotations = append(zs.BinaryAnnotations,
-			&zipkin.BinaryAnnotation{
-				Key:            fmt.Sprintf("arg_%d", arg_idx),
-				Value:          []byte(arg),
-				AnnotationType: zipkin.AnnotationType_STRING,
-				Host:           opts.LocalHost})
-	}
-	for _, annotation := range annotations {
-		zs.BinaryAnnotations = append(zs.BinaryAnnotations,
-			&zipkin.BinaryAnnotation{
-				Key:            annotation.Name,
-				Value:          []byte(annotation.Value),
-				AnnotationType: zipkin.AnnotationType_STRING,
-				Host:           opts.LocalHost})
-	}
-	if panicked {
-		zs.Annotations = append(zs.Annotations, &zipkin.Annotation{
-			Timestamp: finish.UnixNano() / 1000,
-			Value:     "failed",
-			Host:      opts.LocalHost})
-		zs.Annotations = append(zs.Annotations, &zipkin.Annotation{
-			Timestamp: finish.UnixNano() / 1000,
-			Value:     "panic",
-			Host:      opts.LocalHost})
-	} else if err != nil {
-		zs.Annotations = append(zs.Annotations, &zipkin.Annotation{
-			Timestamp: finish.UnixNano() / 1000,
-			Value:     "failed",
-			Host:      opts.LocalHost})
-		zs.BinaryAnnotations = append(zs.BinaryAnnotations,
-			&zipkin.BinaryAnnotation{
-				Key:            "error",
-				Value:          []byte(errors.GetClass(err).String()),
-				AnnotationType: zipkin.AnnotationType_STRING,
-				Host:           opts.LocalHost})
-	}
-	zs.Annotations = append(zs.Annotations, &zipkin.Annotation{
-		Timestamp: finish.UnixNano() / 1000,
-		Value:     end_name,
-		Host:      opts.LocalHost})
-	opts.collector.Collect(zs)
+	opts.collector.Collect(js)
 }

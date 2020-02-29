@@ -2,14 +2,17 @@
 // Copyright (C) 2014 Space Monkey, Inc.
 // See LICENSE for copying information.
 
-package zipkin
+package jaeger
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net"
 
 	"github.com/apache/thrift/lib/go/thrift"
-	"gopkg.in/spacemonkeygo/monkit-zipkin.v2/gen-go/zipkin"
+	"storj.io/monkit-jaeger/gen-go/agent"
+	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
 const (
@@ -17,31 +20,48 @@ const (
 )
 
 // UDPCollector matches the TraceCollector interface, but sends serialized
-// zipkin.Span objects over UDP, instead of the Scribe protocol. See
+// jaeger.Span objects over UDP, instead of the Scribe protocol. See
 // RedirectPackets for the UDP server-side code.
 type UDPCollector struct {
-	ch   chan *zipkin.Span
-	conn *net.UDPConn
-	addr *net.UDPAddr
+	ch            chan *jaeger.Span
+	serviceName   string
+	client        *agent.AgentClient
+	conn          *net.UDPConn
+	thriftBuffer  *thrift.TMemoryBuffer
+	maxPacketSize int
+	batchSeqNo    int64
 }
 
 // NewUDPCollector creates a UDPCollector that sends packets to collector_addr.
-// buffer_size is how many outstanding unsent zipkin.Span objects can exist
+// buffer_size is how many outstanding unsent jaeger.Span objects can exist
 // before Spans start getting dropped.
-func NewUDPCollector(collector_addr string, buffer_size int) (
+func NewUDPCollector(collector_addr string, buffer_size int, serviceName string) (
 	*UDPCollector, error) {
-	addr, err := net.ResolveUDPAddr("udp", collector_addr)
+
+	thriftBuffer := thrift.NewTMemoryBufferLen(buffer_size)
+	protocolFactory := thrift.NewTCompactProtocolFactory()
+	client := agent.NewAgentClientFactory(thriftBuffer, protocolFactory)
+
+	destAddr, err := net.ResolveUDPAddr("udp", collector_addr)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.ListenUDP("udp", nil)
+
+	connUDP, err := net.DialUDP(destAddr.Network(), nil, destAddr)
 	if err != nil {
+		return nil, err
+	}
+	if err := connUDP.SetWriteBuffer(maxPacketSize); err != nil {
 		return nil, err
 	}
 	c := &UDPCollector{
-		ch:   make(chan *zipkin.Span, buffer_size),
-		conn: conn,
-		addr: addr}
+		ch:            make(chan *jaeger.Span, buffer_size),
+		serviceName:   serviceName,
+		client:        client,
+		conn:          connUDP,
+		thriftBuffer:  thriftBuffer,
+		maxPacketSize: buffer_size,
+	}
 	go c.handle()
 	return c, nil
 }
@@ -61,50 +81,33 @@ func (c *UDPCollector) handle() {
 	}
 }
 
-func (c *UDPCollector) send(s *zipkin.Span) error {
-	t := thrift.NewTMemoryBuffer()
-	p := thrift.NewTBinaryProtocolTransport(t)
-	err := s.Write(p)
-	if err != nil {
+func (c *UDPCollector) send(s *jaeger.Span) error {
+	process := &jaeger.Process{ServiceName: c.serviceName}
+	c.batchSeqNo++
+	batchSeqNo := int64(c.batchSeqNo)
+	batch := &jaeger.Batch{
+		Process: process,
+		Spans:   []*jaeger.Span{s},
+		SeqNo:   &batchSeqNo,
+	}
+	c.thriftBuffer.Reset()
+	if err := c.client.EmitBatch(context.Background(), batch); err != nil {
 		return err
 	}
-	_, err = c.conn.WriteToUDP(t.Buffer.Bytes(), c.addr)
+	if c.thriftBuffer.Len() > c.maxPacketSize {
+		return fmt.Errorf("data does not fit within one UDP packet; size %d, max %d, spans %d",
+			c.thriftBuffer.Len(), c.maxPacketSize, len(batch.Spans))
+	}
+	_, err := c.conn.Write(c.thriftBuffer.Bytes())
 	return err
+
 }
 
-// Collect takes a zipkin.Span object, serializes it, and sends it to the
+// Collect takes a jaeger.Span object, serializes it, and sends it to the
 // configured collector_addr.
-func (c *UDPCollector) Collect(span *zipkin.Span) {
+func (c *UDPCollector) Collect(span *jaeger.Span) {
 	select {
 	case c.ch <- span:
 	default:
-	}
-}
-
-// RedirectPackets is a method that handles incoming packets from the
-// UDPCollector class. RedirectPackets, when running, will listen for UDP
-// packets containing serialized zipkin.Span objects on listen_addr, then will
-// resend those packets to the given ScribeCollector. On any error,
-// RedirectPackets currently aborts.
-func RedirectPackets(listen_addr string, collector *ScribeCollector) error {
-	la, err := net.ResolveUDPAddr("udp", listen_addr)
-	if err != nil {
-		return err
-	}
-	conn, err := net.ListenUDP("udp", la)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	var buf [maxPacketSize]byte
-	for {
-		n, _, err := conn.ReadFrom(buf[:])
-		if err != nil {
-			return err
-		}
-		err = collector.CollectSerialized(buf[:n])
-		if err != nil {
-			return err
-		}
 	}
 }
