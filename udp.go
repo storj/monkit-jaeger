@@ -24,7 +24,7 @@ const (
 // RedirectPackets for the UDP server-side code.
 type UDPCollector struct {
 	ch            chan *jaeger.Span
-	serviceName   string
+	process       *jaeger.Process
 	client        *agent.AgentClient
 	conn          *net.UDPConn
 	thriftBuffer  *thrift.TMemoryBuffer
@@ -35,7 +35,7 @@ type UDPCollector struct {
 // NewUDPCollector creates a UDPCollector that sends packets to collector_addr.
 // buffer_size is how many outstanding unsent jaeger.Span objects can exist
 // before Spans start getting dropped.
-func NewUDPCollector(collector_addr string, buffer_size int, serviceName string) (
+func NewUDPCollector(collector_addr string, buffer_size int, serviceName string, tags []Tag) (
 	*UDPCollector, error) {
 
 	thriftBuffer := thrift.NewTMemoryBufferLen(buffer_size)
@@ -47,6 +47,15 @@ func NewUDPCollector(collector_addr string, buffer_size int, serviceName string)
 		return nil, err
 	}
 
+	jaegerTags := make([]*jaeger.Tag, 0, len(tags))
+	for _, tag := range tags {
+		j, err := tag.ToJaeger()
+		if err != nil {
+			continue
+		}
+		jaegerTags = append(jaegerTags, j)
+	}
+
 	connUDP, err := net.DialUDP(destAddr.Network(), nil, destAddr)
 	if err != nil {
 		return nil, err
@@ -56,11 +65,14 @@ func NewUDPCollector(collector_addr string, buffer_size int, serviceName string)
 	}
 	c := &UDPCollector{
 		ch:            make(chan *jaeger.Span, buffer_size),
-		serviceName:   serviceName,
 		client:        client,
 		conn:          connUDP,
 		thriftBuffer:  thriftBuffer,
 		maxPacketSize: buffer_size,
+		process: &jaeger.Process{
+			ServiceName: serviceName,
+			Tags:        jaegerTags,
+		},
 	}
 	go c.handle()
 	return c, nil
@@ -82,11 +94,10 @@ func (c *UDPCollector) handle() {
 }
 
 func (c *UDPCollector) send(s *jaeger.Span) error {
-	process := &jaeger.Process{ServiceName: c.serviceName}
 	c.batchSeqNo++
 	batchSeqNo := int64(c.batchSeqNo)
 	batch := &jaeger.Batch{
-		Process: process,
+		Process: c.process,
 		Spans:   []*jaeger.Span{s},
 		SeqNo:   &batchSeqNo,
 	}
