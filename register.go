@@ -16,14 +16,11 @@ type traceKey int
 
 const (
 	sampleKey       traceKey = 0
-	flagsKey        traceKey = 1
 	remoteParentKey traceKey = 2
 )
 
 type Options struct {
-	Fraction float64         // The Fraction of traces to observe.
-	Debug    bool            // Whether to set the debug flag on new traces.
-	Process  *jaeger.Process // What set as the local zipkin.Endpoint
+	Fraction float64 // The Fraction of traces to observe.
 
 	collector TraceCollector
 }
@@ -33,6 +30,7 @@ type Options struct {
 func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 	opts Options) {
 	opts.collector = collector
+
 	reg.ObserveTraces(func(t *monkit.Trace) {
 		sampled, exists := t.Get(sampleKey).(bool)
 		if !exists {
@@ -40,14 +38,6 @@ func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 			t.Set(sampleKey, sampled)
 		}
 		if sampled {
-			flags, ok := t.Get(flagsKey).(int64)
-			if !ok {
-				flags = 0
-			}
-			if opts.Debug {
-				flags = flags | 1
-			}
-			t.Set(flagsKey, flags)
 			t.ObserveSpans(spanFinishObserverFunc(opts.observeSpan))
 		}
 	})
@@ -62,21 +52,24 @@ func (f spanFinishObserverFunc) Finish(s *monkit.Span, err error,
 	f(s, err, panicked, finish)
 }
 
-func getParentId(s *monkit.Span) (parent_id *int64, server bool) {
+func getParentId(s *monkit.Span) *int64 {
 	parent := s.Parent()
 	if parent != nil {
 		parent_id := parent.Id()
-		return &parent_id, false
+
+		return &parent_id
 	}
-	if parent_id, ok := s.Trace().Get(remoteParentKey).(int64); ok {
-		return &parent_id, true
+
+	if remote_parent_id, ok := s.Trace().Get(remoteParentKey).(int64); ok {
+		return &remote_parent_id
 	}
-	return nil, false
+
+	return nil
 }
 
 func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 	finish time.Time) {
-	parent_id, _ := getParentId(s)
+	parent_id := getParentId(s)
 	startTime := s.Start().UnixNano() / 1000
 
 	js := &jaeger.Span{

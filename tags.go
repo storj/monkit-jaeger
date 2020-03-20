@@ -29,7 +29,7 @@ func (t *Tag) ToJaeger() (*jaeger.Tag, error) {
 		jaegerTag.VDouble = t.Value.(*float64)
 		jaegerTag.VType = jaeger.TagType_DOUBLE
 	default:
-		return nil, errs.New("illegal type value type")
+		return nil, errs.New("illegal type value")
 	}
 
 	return jaegerTag, nil
