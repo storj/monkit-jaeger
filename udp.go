@@ -51,6 +51,7 @@ func NewUDPCollector(collector_addr string, buffer_size int, serviceName string,
 	for _, tag := range tags {
 		j, err := tag.ToJaeger()
 		if err != nil {
+			log.Printf("failed to convert to jaeger tags: %v", err)
 			continue
 		}
 		jaegerTags = append(jaegerTags, j)
