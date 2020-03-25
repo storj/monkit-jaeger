@@ -6,6 +6,7 @@ package jaeger
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
@@ -87,20 +88,28 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 	tags := make([]*jaeger.Tag, 0, len(s.Annotations())+len(s.Args()))
 	for _, annotation := range s.Annotations() {
 		annotation := annotation
-		tags = append(tags, &jaeger.Tag{
+		tag := Tag{
 			Key:   annotation.Name,
-			VType: jaeger.TagType_STRING,
-			VStr:  &annotation.Value,
-		})
+			Value: annotation.Value,
+		}
+		jaegerTag, err := tag.ToJaeger()
+		if err != nil {
+			log.Printf("failed to convert tag to jaeger format: %v", err)
+		}
+		tags = append(tags, jaegerTag)
 	}
 
 	for arg_idx, arg := range s.Args() {
 		arg := arg
-		tags = append(tags, &jaeger.Tag{
+		tag := Tag{
 			Key:   fmt.Sprintf("arg_%d", arg_idx),
-			VType: jaeger.TagType_STRING,
-			VStr:  &arg,
-		})
+			Value: arg,
+		}
+		jaegerTag, err := tag.ToJaeger()
+		if err != nil {
+			log.Printf("failed to convert args to jaeger format: %v", err)
+		}
+		tags = append(tags, jaegerTag)
 	}
 
 	js.Tags = tags
