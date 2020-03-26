@@ -22,7 +22,11 @@ Your main method gets set up something like this:
 
   func main() {
 	  environment.Register(monkit.Default)
-	  collector, err := jaeger.NewUDPCollector("zipkin.whatever:9042", 200, "service name")
+	  collector, err := jaeger.NewUDPCollector("zipkin.whatever:9042", 200, "service name", []jaeger.Tag{
+		  jaeger.Tag{
+			  ....
+		  }
+	  })
 	  if err != nil {
 		  panic(err)
 	  }
