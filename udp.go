@@ -11,6 +11,7 @@ import (
 	"net"
 
 	"github.com/apache/thrift/lib/go/thrift"
+
 	"storj.io/monkit-jaeger/gen-go/agent"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )

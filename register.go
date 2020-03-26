@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
+
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
@@ -20,6 +21,7 @@ const (
 	remoteParentKey traceKey = 2
 )
 
+// Options represents the configuration for the register.
 type Options struct {
 	Fraction float64         // The Fraction of traces to observe.
 	Debug    bool            // Whether to set the debug flag on new traces.
