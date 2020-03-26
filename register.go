@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
+
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
@@ -20,6 +21,7 @@ const (
 	remoteParentKey traceKey = 2
 )
 
+// Options represents the configuration for the register.
 type Options struct {
 	Fraction float64 // The Fraction of traces to observe.
 
@@ -53,16 +55,14 @@ func (f spanFinishObserverFunc) Finish(s *monkit.Span, err error,
 	f(s, err, panicked, finish)
 }
 
-func getParentId(s *monkit.Span) *int64 {
+func getParentID(s *monkit.Span) *int64 {
 	parent := s.Parent()
 	if parent != nil {
-		parent_id := parent.Id()
-
-		return &parent_id
+		parentID := parent.Id()
+		return &parentID
 	}
-
-	if remote_parent_id, ok := s.Trace().Get(remoteParentKey).(int64); ok {
-		return &remote_parent_id
+	if remoteParentID, ok := s.Trace().Get(remoteParentKey).(int64); ok {
+		return &remoteParentID
 	}
 
 	return nil
@@ -70,7 +70,6 @@ func getParentId(s *monkit.Span) *int64 {
 
 func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 	finish time.Time) {
-	parent_id := getParentId(s)
 	startTime := s.Start().UnixNano() / 1000
 
 	js := &jaeger.Span{
@@ -81,8 +80,10 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 		StartTime:     startTime,
 		Duration:      s.Duration().Microseconds(),
 	}
-	if parent_id != nil {
-		js.ParentSpanId = *parent_id
+
+	parentID := getParentID(s)
+	if parentID != nil {
+		js.ParentSpanId = *parentID
 	}
 
 	tags := make([]*jaeger.Tag, 0, len(s.Annotations())+len(s.Args()))
@@ -99,10 +100,10 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 		tags = append(tags, jaegerTag)
 	}
 
-	for arg_idx, arg := range s.Args() {
+	for idx, arg := range s.Args() {
 		arg := arg
 		tag := Tag{
-			Key:   fmt.Sprintf("arg_%d", arg_idx),
+			Key:   fmt.Sprintf("arg_%d", idx),
 			Value: arg,
 		}
 		jaegerTag, err := tag.BuildJaegerThrift()
