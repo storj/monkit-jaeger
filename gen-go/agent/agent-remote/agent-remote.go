@@ -4,7 +4,6 @@
 package main
 
 import (
-	"storj.io/monkit-jaeger/gen-go/agent"
 	"context"
 	"flag"
 	"fmt"

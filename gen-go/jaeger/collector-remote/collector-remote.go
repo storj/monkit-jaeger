@@ -7,6 +7,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+
 	"github.com/apache/thrift/lib/go/thrift"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 
@@ -16,37 +17,36 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
 )
 
 var _ = jaeger.GoUnusedProtection__
 
-	nc Usage() {
+func Usage() {
 	fmt.Fprintln(os.Stderr, "Usage of ", os.Args[0], " [-h host:port] [-u url] [-f[ramed]] function [arg1 [arg2...]]:")
 	flag.PrintDefaults()
 	fmt.Fprintln(os.Stderr, "\nFunctions:")
 	fmt.Fprintln(os.Stderr, "   submitBatches( batches)")
 	fmt.Fprintln(os.Stderr)
-  os.Exit(0)
+	os.Exit(0)
 }
 
 type httpHeaders map[string]string
 
-	nc (h httpHeaders) String() string {
+func (h httpHeaders) String() string {
 	var m map[string]string = h
-  return fmt.Sprintf("%s", m)
+	return fmt.Sprintf("%s", m)
 }
 
-	nc (h httpHeaders) Set(value string) error {
+func (h httpHeaders) Set(value string) error {
 	parts := strings.Split(value, ": ")
-		 len(parts) != 2 {
-	  return fmt.Errorf("header should be of format 'Key: Value'")
+	if len(parts) != 2 {
+		return fmt.Errorf("header should be of format 'Key: Value'")
 	}
 	h[parts[0]] = parts[1]
-  return nil
+	return nil
 }
 
-	nc main() {
+func main() {
 	flag.Usage = Usage
 	var host string
 	var port int
@@ -67,116 +67,116 @@ type httpHeaders map[string]string
 	flag.BoolVar(&framed, "framed", false, "Use framed transport")
 	flag.BoolVar(&useHttp, "http", false, "Use http")
 	flag.Var(headers, "H", "Headers to set on the http(s) request (e.g. -H \"Key: Value\")")
-flag.Parse()
-	
-		 len(urlString) > 0 {
+	flag.Parse()
+
+	if len(urlString) > 0 {
 		var err error
 		parsedUrl, err = url.Parse(urlString)
-			 err != nil {
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error parsing URL: ", err)
-		  flag.Usage()
+			flag.Usage()
 		}
 		host = parsedUrl.Host
-	  useHttp = len(parsedUrl.Scheme) <= 0 || parsedUrl.Scheme == "http" || parsedUrl.Scheme == "https"
-		else if useHttp {
+		useHttp = len(parsedUrl.Scheme) <= 0 || parsedUrl.Scheme == "http" || parsedUrl.Scheme == "https"
+	} else if useHttp {
 		_, err := url.Parse(fmt.Sprint("http://", host, ":", port))
-			 err != nil {
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error parsing URL: ", err)
-		  flag.Usage()
-	  }
-}
-	
+			flag.Usage()
+		}
+	}
+
 	cmd := flag.Arg(0)
 	var err error
-		 useHttp {
+	if useHttp {
 		trans, err = thrift.NewTHttpClient(parsedUrl.String())
-			 len(headers) > 0 {
+		if len(headers) > 0 {
 			httptrans := trans.(*thrift.THttpClient)
-				r key, value := range headers {
-			  httptrans.SetHeader(key, value)
-		  }
-	  }
-		else {
+			for key, value := range headers {
+				httptrans.SetHeader(key, value)
+			}
+		}
+	} else {
 		portStr := fmt.Sprint(port)
-			ngs.Contains(host, ":") {
+		if strings.Contains(host, ":") {
 			host, portStr, err = net.SplitHostPort(host)
-				= nil {
+			if err != nil {
 				fmt.Fprintln(os.Stderr, "error with host:", err)
-			        os.Exit(1)
-		       }
+				os.Exit(1)
+			}
 		}
 		trans, err = thrift.NewTSocket(net.JoinHostPort(host, portStr))
-			 err != nil {
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "error resolving address:", err)
-		  os.Exit(1)
+			os.Exit(1)
 		}
-			 framed {
-		  trans = thrift.NewTFramedTransport(trans)
-	  }
+		if framed {
+			trans = thrift.NewTFramedTransport(trans)
+		}
 	}
-		 err != nil {
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error creating transport", err)
-	  os.Exit(1)
+		os.Exit(1)
 	}
 	defer trans.Close()
 	var protocolFactory thrift.TProtocolFactory
 	switch protocol {
-		se "compact":
+	case "compact":
 		protocolFactory = thrift.NewTCompactProtocolFactory()
-	  break
-		se "simplejson":
+		break
+	case "simplejson":
 		protocolFactory = thrift.NewTSimpleJSONProtocolFactory()
-	  break
-		se "json":
+		break
+	case "json":
 		protocolFactory = thrift.NewTJSONProtocolFactory()
-	  break
-		se "binary", "":
+		break
+	case "binary", "":
 		protocolFactory = thrift.NewTBinaryProtocolFactoryDefault()
-	  break
-		fault:
+		break
+	default:
 		fmt.Fprintln(os.Stderr, "Invalid protocol specified: ", protocol)
 		Usage()
-	  os.Exit(1)
+		os.Exit(1)
 	}
 	iprot := protocolFactory.GetProtocol(trans)
 	oprot := protocolFactory.GetProtocol(trans)
 	client := jaeger.NewCollectorClient(thrift.NewTStandardClient(iprot, oprot))
-		 err := trans.Open(); err != nil {
+	if err := trans.Open(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error opening socket to ", host, ":", port, " ", err)
-	  os.Exit(1)
-}
-	
+		os.Exit(1)
+	}
+
 	switch cmd {
-		se "submitBatce":
-			 flag.NArg() - 1 != 1 {
+	case "submitBatches":
+		if flag.NArg()-1 != 1 {
 			fmt.Fprintln(os.Stderr, "SubmitBatches requires 1 args")
-		  flag.Usage()
+			flag.Usage()
 		}
 		arg12 := flag.Arg(1)
 		mbTrans13 := thrift.NewTMemoryBufferLen(len(arg12))
 		defer mbTrans13.Close()
-		_, err14 := mbTras13.WriteString(arg12)
-			 err14 != nil { 
+		_, err14 := mbTrans13.WriteString(arg12)
+		if err14 != nil {
 			Usage()
-		  return
+			return
 		}
 		factory15 := thrift.NewTJSONProtocolFactory()
 		jsProt16 := factory15.GetProtocol(mbTrans13)
 		containerStruct0 := jaeger.NewCollectorSubmitBatchesArgs()
 		err17 := containerStruct0.ReadField1(jsProt16)
-			 err17 != nil {
+		if err17 != nil {
 			Usage()
-		  return
+			return
 		}
 		argvalue0 := containerStruct0.Batches
 		value0 := argvalue0
 		fmt.Print(client.SubmitBatches(context.Background(), value0))
 		fmt.Print("\n")
-	  break
-		se "":
+		break
+	case "":
 		Usage()
-	  break
-		fault:
-	  fmt.Fprintln(os.Stderr, "Invalid function ", cmd)
-  }
+		break
+	default:
+		fmt.Fprintln(os.Stderr, "Invalid function ", cmd)
+	}
 }
