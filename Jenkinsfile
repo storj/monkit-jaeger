@@ -38,6 +38,7 @@ pipeline {
                     }
                 }
 
+// TODO: enable tests when we have tests
 /*                 stage('Tests') {
                     environment {
                         COVERFLAGS = "${ env.BRANCH_NAME != 'master' ? '' : '-coverprofile=.build/coverprofile -coverpkg=./...'}"
