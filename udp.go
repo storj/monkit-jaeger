@@ -36,14 +36,14 @@ type UDPCollector struct {
 // NewUDPCollector creates a UDPCollector that sends packets to collector_addr.
 // buffer_size is how many outstanding unsent jaeger.Span objects can exist
 // before Spans start getting dropped.
-func NewUDPCollector(collector_addr string, buffer_size int, serviceName string) (
+func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string) (
 	*UDPCollector, error) {
 
-	thriftBuffer := thrift.NewTMemoryBufferLen(buffer_size)
+	thriftBuffer := thrift.NewTMemoryBufferLen(bufferSize)
 	protocolFactory := thrift.NewTCompactProtocolFactory()
 	client := agent.NewAgentClientFactory(thriftBuffer, protocolFactory)
 
-	destAddr, err := net.ResolveUDPAddr("udp", collector_addr)
+	destAddr, err := net.ResolveUDPAddr("udp", collectorAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -56,12 +56,12 @@ func NewUDPCollector(collector_addr string, buffer_size int, serviceName string)
 		return nil, err
 	}
 	c := &UDPCollector{
-		ch:            make(chan *jaeger.Span, buffer_size),
+		ch:            make(chan *jaeger.Span, bufferSize),
 		serviceName:   serviceName,
 		client:        client,
 		conn:          connUDP,
 		thriftBuffer:  thriftBuffer,
-		maxPacketSize: buffer_size,
+		maxPacketSize: bufferSize,
 	}
 	go c.handle()
 	return c, nil
@@ -69,15 +69,13 @@ func NewUDPCollector(collector_addr string, buffer_size int, serviceName string)
 
 func (c *UDPCollector) handle() {
 	for {
-		select {
-		case s, ok := <-c.ch:
-			if !ok {
-				return
-			}
-			err := c.send(s)
-			if err != nil {
-				log.Printf("failed write: %v", err)
-			}
+		s, ok := <-c.ch
+		if !ok {
+			return
+		}
+		err := c.send(s)
+		if err != nil {
+			log.Printf("failed write: %v", err)
 		}
 	}
 }
@@ -85,7 +83,7 @@ func (c *UDPCollector) handle() {
 func (c *UDPCollector) send(s *jaeger.Span) error {
 	process := &jaeger.Process{ServiceName: c.serviceName}
 	c.batchSeqNo++
-	batchSeqNo := int64(c.batchSeqNo)
+	batchSeqNo := c.batchSeqNo
 	batch := &jaeger.Batch{
 		Process: process,
 		Spans:   []*jaeger.Span{s},

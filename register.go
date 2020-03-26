@@ -47,7 +47,7 @@ func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 				flags = 0
 			}
 			if opts.Debug {
-				flags = flags | 1
+				flags |= 1
 			}
 			t.Set(flagsKey, flags)
 			t.ObserveSpans(spanFinishObserverFunc(opts.observeSpan))
@@ -64,21 +64,20 @@ func (f spanFinishObserverFunc) Finish(s *monkit.Span, err error,
 	f(s, err, panicked, finish)
 }
 
-func getParentId(s *monkit.Span) (parent_id *int64, server bool) {
+func getParentID(s *monkit.Span) (parentID *int64, server bool) {
 	parent := s.Parent()
 	if parent != nil {
-		parent_id := parent.Id()
-		return &parent_id, false
+		parentID := parent.Id()
+		return &parentID, false
 	}
-	if parent_id, ok := s.Trace().Get(remoteParentKey).(int64); ok {
-		return &parent_id, true
+	if remoteParentID, ok := s.Trace().Get(remoteParentKey).(int64); ok {
+		return &remoteParentID, true
 	}
 	return nil, false
 }
 
 func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 	finish time.Time) {
-	parent_id, _ := getParentId(s)
 	startTime := s.Start().UnixNano() / 1000
 
 	js := &jaeger.Span{
@@ -89,8 +88,10 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 		StartTime:     startTime,
 		Duration:      s.Duration().Microseconds(),
 	}
-	if parent_id != nil {
-		js.ParentSpanId = *parent_id
+
+	parentID, _ := getParentID(s)
+	if parentID != nil {
+		js.ParentSpanId = *parentID
 	}
 
 	tags := make([]*jaeger.Tag, 0, len(s.Annotations())+len(s.Args()))
@@ -103,10 +104,10 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 		})
 	}
 
-	for arg_idx, arg := range s.Args() {
+	for idx, arg := range s.Args() {
 		arg := arg
 		tags = append(tags, &jaeger.Tag{
-			Key:   fmt.Sprintf("arg_%d", arg_idx),
+			Key:   fmt.Sprintf("arg_%d", idx),
 			VType: jaeger.TagType_STRING,
 			VStr:  &arg,
 		})

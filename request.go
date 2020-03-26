@@ -13,9 +13,9 @@ import (
 // Request is a structure representing an incoming RPC request. Every field
 // is optional.
 type Request struct {
-	TraceId  *int64
-	SpanId   *int64
-	ParentId *int64
+	TraceID  *int64
+	SpanID   *int64
+	ParentID *int64
 	Sampled  *bool
 	Flags    *int64
 }
@@ -33,17 +33,17 @@ type HeaderSetter interface {
 // RequestFromHeader will create a Request object given an http.Header or
 // anything that matches the HeaderGetter interface.
 func RequestFromHeader(header HeaderGetter) (rv Request) {
-	trace_id, err := fromHeader(header.Get("X-B3-TraceId"))
+	traceID, err := fromHeader(header.Get("X-B3-TraceId"))
 	if err == nil {
-		rv.TraceId = &trace_id
+		rv.TraceID = &traceID
 	}
-	span_id, err := fromHeader(header.Get("X-B3-SpanId"))
+	spanID, err := fromHeader(header.Get("X-B3-SpanId"))
 	if err == nil {
-		rv.SpanId = &span_id
+		rv.SpanID = &spanID
 	}
-	parent_id, err := fromHeader(header.Get("X-B3-ParentSpanId"))
+	parentID, err := fromHeader(header.Get("X-B3-ParentSpanId"))
 	if err == nil {
-		rv.ParentId = &parent_id
+		rv.ParentID = &parentID
 	}
 	sampled, err := strconv.ParseBool(header.Get("X-B3-Sampled"))
 	if err == nil {
@@ -60,6 +60,7 @@ func ref(v int64) *int64 {
 	return &v
 }
 
+// RequestFromSpan consrtructs a new request from an span.
 func RequestFromSpan(s *monkit.Span) Request {
 	trace := s.Trace()
 
@@ -75,27 +76,27 @@ func RequestFromSpan(s *monkit.Span) Request {
 	if !ok {
 		flags = 0
 	}
-	parent_id, _ := getParentId(s)
+	parentID, _ := getParentID(s)
 	return Request{
-		TraceId:  ref(trace.Id()),
-		SpanId:   ref(s.Id()),
+		TraceID:  ref(trace.Id()),
+		SpanID:   ref(s.Id()),
 		Sampled:  &sampled,
 		Flags:    &flags,
-		ParentId: parent_id,
+		ParentID: parentID,
 	}
 }
 
 // SetHeader will take a Request and fill out an http.Header, or anything that
 // matches the HeaderSetter interface.
 func (r Request) SetHeader(header HeaderSetter) {
-	if r.TraceId != nil {
-		header.Set("X-B3-TraceId", toHeader(*r.TraceId))
+	if r.TraceID != nil {
+		header.Set("X-B3-TraceId", toHeader(*r.TraceID))
 	}
-	if r.SpanId != nil {
-		header.Set("X-B3-SpanId", toHeader(*r.SpanId))
+	if r.SpanID != nil {
+		header.Set("X-B3-SpanId", toHeader(*r.SpanID))
 	}
-	if r.ParentId != nil {
-		header.Set("X-B3-ParentSpanId", toHeader(*r.ParentId))
+	if r.ParentID != nil {
+		header.Set("X-B3-ParentSpanId", toHeader(*r.ParentID))
 	}
 	if r.Sampled != nil {
 		header.Set("X-B3-Sampled", strconv.FormatBool(*r.Sampled))
@@ -105,28 +106,29 @@ func (r Request) SetHeader(header HeaderSetter) {
 	}
 }
 
-func (zipreq Request) Trace() (trace *monkit.Trace, spanId int64) {
-	if zipreq.TraceId != nil {
-		trace = monkit.NewTrace(*zipreq.TraceId)
+// Trace returns a new trace and spanID based on the request.
+func (r Request) Trace() (trace *monkit.Trace, spanID int64) {
+	if r.TraceID != nil {
+		trace = monkit.NewTrace(*r.TraceID)
 	} else {
 		trace = monkit.NewTrace(monkit.NewId())
 	}
-	if zipreq.SpanId != nil {
-		spanId = *zipreq.SpanId
+	if r.SpanID != nil {
+		spanID = *r.SpanID
 	} else {
-		spanId = monkit.NewId()
+		spanID = monkit.NewId()
 	}
 
-	if zipreq.ParentId != nil {
-		trace.Set(remoteParentKey, *zipreq.ParentId)
+	if r.ParentID != nil {
+		trace.Set(remoteParentKey, *r.ParentID)
 	}
-	if zipreq.Sampled != nil {
-		trace.Set(sampleKey, *zipreq.Sampled)
+	if r.Sampled != nil {
+		trace.Set(sampleKey, *r.Sampled)
 	}
-	if zipreq.Flags != nil {
-		trace.Set(flagsKey, *zipreq.Flags)
+	if r.Flags != nil {
+		trace.Set(flagsKey, *r.Flags)
 	}
-	return trace, spanId
+	return trace, spanID
 }
 
 // fromHeader reads a signed int64 that has been formatted as a hex uint64
