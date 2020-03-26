@@ -49,7 +49,7 @@ func NewUDPCollector(collector_addr string, buffer_size int, serviceName string,
 
 	jaegerTags := make([]*jaeger.Tag, 0, len(tags))
 	for _, tag := range tags {
-		j, err := tag.ToJaeger()
+		j, err := tag.BuildJaegerThrift()
 		if err != nil {
 			log.Printf("failed to convert to jaeger tags: %v", err)
 			continue

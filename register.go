@@ -92,7 +92,7 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 			Key:   annotation.Name,
 			Value: annotation.Value,
 		}
-		jaegerTag, err := tag.ToJaeger()
+		jaegerTag, err := tag.BuildJaegerThrift()
 		if err != nil {
 			log.Printf("failed to convert tag to jaeger format: %v", err)
 		}
@@ -105,7 +105,7 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 			Key:   fmt.Sprintf("arg_%d", arg_idx),
 			Value: arg,
 		}
-		jaegerTag, err := tag.ToJaeger()
+		jaegerTag, err := tag.BuildJaegerThrift()
 		if err != nil {
 			log.Printf("failed to convert args to jaeger format: %v", err)
 		}

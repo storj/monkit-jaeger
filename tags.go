@@ -10,7 +10,7 @@ type Tag struct {
 	Value interface{}
 }
 
-func (t *Tag) ToJaeger() (*jaeger.Tag, error) {
+func (t *Tag) BuildJaegerThrift() (*jaeger.Tag, error) {
 	jaegerTag := &jaeger.Tag{
 		Key: t.Key,
 	}
