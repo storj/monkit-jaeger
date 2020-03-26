@@ -1,3 +1,7 @@
+// Copyright (C) 2020 Storj Labs, Inc.
+// Copyright (C) 2014 Space Monkey, Inc.
+// See LICENSE for copying information.
+
 package jaeger
 
 import (
@@ -6,10 +10,9 @@ import (
 
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/stretchr/testify/require"
+
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
-
-var mon = monkit.Package()
 
 type expected struct {
 	operationName string
@@ -18,7 +21,7 @@ type expected struct {
 }
 type testCollector struct {
 	t        *testing.T
-	expected expected
+	expected *expected
 }
 
 func (c *testCollector) Collect(s *jaeger.Span) {
@@ -32,7 +35,8 @@ func (c *testCollector) Collect(s *jaeger.Span) {
 		require.Equal(c.t, expectedTag.GetVType(), actualTag.GetVType())
 	}
 }
-func newTestCollector(t *testing.T, testCase expected) *testCollector {
+
+func newTestCollector(t *testing.T, testCase *expected) *testCollector {
 	return &testCollector{
 		t:        t,
 		expected: testCase,
@@ -40,36 +44,28 @@ func newTestCollector(t *testing.T, testCase expected) *testCollector {
 }
 
 func TestRegisterJaeger(t *testing.T) {
-
 	cases := expected{
 		operationName: "test-register",
 		hasParentID:   false,
 		tags:          make([]*jaeger.Tag, 0),
 	}
-	collector := newTestCollector(t, cases)
-	RegisterJaeger(monkit.Default, collector, Options{
+	collector := newTestCollector(t, &cases)
+
+	r := monkit.Default
+	RegisterJaeger(r, collector, Options{
 		Fraction: 1,
 	})
-	newTrace(cases.operationName)
-}
+	newTrace(r.Package(), cases.operationName)
 
-func TestRegisterJaeger_WithParent(t *testing.T) {
-
-	cases := expected{
+	cases = expected{
 		operationName: "test-register-parent",
 		hasParentID:   true,
 		tags:          make([]*jaeger.Tag, 0),
 	}
-	collector := newTestCollector(t, cases)
-	RegisterJaeger(monkit.Default, collector, Options{
-		Fraction: 1,
-	})
-	newTraceWithParent(context.Background(), cases.operationName)
-}
+	collector.expected = &cases
+	newTraceWithParent(context.Background(), r.Package(), cases.operationName)
 
-func TestRegisterJaeger_WithTags(t *testing.T) {
-
-	cases := expected{
+	cases = expected{
 		operationName: "test-register-tags",
 		hasParentID:   false,
 		tags:          make([]*jaeger.Tag, 0),
@@ -80,25 +76,22 @@ func TestRegisterJaeger_WithTags(t *testing.T) {
 		VType: jaeger.TagType_STRING,
 		VStr:  &tagValue,
 	})
-	collector := newTestCollector(t, cases)
-	RegisterJaeger(monkit.Default, collector, Options{
-		Fraction: 1,
-	})
-	newTraceWithTags(context.Background(), cases.operationName, tagValue)
+	collector.expected = &cases
+	newTraceWithTags(r.Package(), cases.operationName, tagValue)
 }
 
-func newTrace(name string) {
+func newTrace(mon *monkit.Scope, name string) {
 	defer mon.TaskNamed(name)(nil)(nil)
 }
 
-func newTraceWithParent(ctx context.Context, name string) {
+func newTraceWithParent(ctx context.Context, mon *monkit.Scope, name string) {
 	newTrace := monkit.NewTrace(monkit.NewId())
 	newTrace.Set(remoteParentKey, monkit.NewId())
-	defer mon.FuncNamed(name).RemoteTrace(&ctx, monkit.NewId(), newTrace)
+	defer mon.FuncNamed(name).RemoteTrace(&ctx, monkit.NewId(), newTrace)(nil)
 }
 
-func newTraceWithTags(ctx context.Context, name string, tag string) {
-	defer mon.TaskNamed(name)(&ctx, tag)(nil)
+func newTraceWithTags(mon *monkit.Scope, name string, tag string) {
+	defer mon.TaskNamed(name)(nil, tag)(nil)
 }
 
 func findTag(key string, s *jaeger.Span) (*jaeger.Tag, bool) {

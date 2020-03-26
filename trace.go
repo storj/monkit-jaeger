@@ -10,45 +10,45 @@ import (
 
 // remoteTrace is a structure representing an incoming RPC trace.
 type remoteTrace struct {
-	traceId  *int64
-	spanId   *int64
-	parentId *int64
+	traceID  *int64
+	spanID   *int64
+	parentID *int64
 	sampled  *bool
 }
 
 // RemoteTraceHandler returns a new trace and its root span id based on remote trace information.
-func RemoteTraceHandler(traceId *int64, parentId *int64) (trace *monkit.Trace, spanId int64) {
-	if traceId == nil || parentId == nil {
+func RemoteTraceHandler(traceID *int64, parentID *int64) (trace *monkit.Trace, spanID int64) {
+	if traceID == nil || parentID == nil {
 		return nil, 0
 	}
 
 	rem := remoteTrace{
-		traceId:  traceId,
-		parentId: parentId,
+		traceID:  traceID,
+		parentID: parentID,
 	}
 
 	return rem.trace()
 }
 
 // Trace returns a trace and a span id based on the remote trace.
-func (rem remoteTrace) trace() (trace *monkit.Trace, spanId int64) {
-	if rem.traceId != nil {
-		trace = monkit.NewTrace(*rem.traceId)
+func (rem remoteTrace) trace() (trace *monkit.Trace, spanID int64) {
+	if rem.traceID != nil {
+		trace = monkit.NewTrace(*rem.traceID)
 	}
 
-	if rem.spanId != nil {
-		spanId = *rem.spanId
+	if rem.spanID != nil {
+		spanID = *rem.spanID
 	} else {
-		spanId = monkit.NewId()
+		spanID = monkit.NewId()
 	}
 
-	if rem.parentId != nil {
-		trace.Set(remoteParentKey, *rem.parentId)
+	if rem.parentID != nil {
+		trace.Set(remoteParentKey, *rem.parentID)
 	}
 
 	if rem.sampled != nil {
 		trace.Set(sampleKey, *rem.sampled)
 	}
 
-	return trace, spanId
+	return trace, spanID
 }
