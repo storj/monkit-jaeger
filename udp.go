@@ -86,14 +86,16 @@ func (c *UDPCollector) handle() {
 		if !ok {
 			return
 		}
-		err := c.send(s)
+		err := c.Send(s)
 		if err != nil {
 			log.Printf("failed write: %v", err)
 		}
 	}
 }
 
-func (c *UDPCollector) send(s *jaeger.Span) error {
+// Send sends traces to jaeger agent.
+// It's exposed only for testing purpose.
+func (c *UDPCollector) Send(s *jaeger.Span) error {
 	c.batchSeqNo++
 	batchSeqNo := c.batchSeqNo
 	batch := &jaeger.Batch{

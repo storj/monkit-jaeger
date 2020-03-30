@@ -35,9 +35,12 @@ func TestUDPCollector(t *testing.T) {
 	collector.Collect(span)
 
 	data := mock.GetBatches()
-	for len(data) < 1 {
+	for i := 0; i < 1000; i++ {
 		time.Sleep(1 * time.Millisecond)
 		data = mock.GetBatches()
+		if len(data) > 0 {
+			break
+		}
 	}
 	require.Len(t, data, 1)
 	require.Len(t, data[0].GetSpans(), 1)
@@ -66,9 +69,9 @@ func TestUDPCollector_HugeSpan(t *testing.T) {
 		Duration:      time.Second.Microseconds(),
 	}
 
-	collector.Collect(span)
+	err = collector.Send(span)
+	require.Error(t, err)
 
-	time.Sleep(1 * time.Millisecond)
 	data := mock.GetBatches()
-	require.Len(t, data, 0)
+	require.Empty(t, data)
 }

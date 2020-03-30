@@ -8,7 +8,6 @@ import (
 	"context"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -28,7 +27,7 @@ func StartMockAgent(hostPort string) (*MockAgent, error) {
 	}
 	mock := &MockAgent{
 		batches: make([]*jaeger.Batch, 0),
-		mux:     &sync.Mutex{},
+		mu:      &sync.Mutex{},
 		conn:    conn,
 		addr:    conn.LocalAddr().String(),
 	}
@@ -39,25 +38,26 @@ func StartMockAgent(hostPort string) (*MockAgent, error) {
 
 // MockAgent implements jaeger agent interface.
 type MockAgent struct {
-	conn    *net.UDPConn
-	addr    string
-	closed  uint32
-	mux     *sync.Mutex
+	conn *net.UDPConn
+	addr string
+
+	mu      *sync.Mutex
+	closed  bool
 	batches []*jaeger.Batch
 }
 
 // EmitBatch implements jaeger agent interface.
 func (m *MockAgent) EmitBatch(ctx context.Context, batch *jaeger.Batch) (err error) {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.batches = append(m.batches, batch)
 	return nil
 }
 
 // GetBatches returns batches jaeger agent received.
 func (m *MockAgent) GetBatches() []*jaeger.Batch {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	batches := make([]*jaeger.Batch, len(m.batches))
 	copy(batches, m.batches)
 	return batches
@@ -70,7 +70,10 @@ func (m *MockAgent) Addr() string {
 
 // Close shutdown mock agent server.
 func (m *MockAgent) Close() error {
-	atomic.StoreUint32(&m.closed, 1)
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
+
 	return m.conn.Close()
 }
 
@@ -92,5 +95,7 @@ func (m *MockAgent) serve() {
 }
 
 func (m *MockAgent) isClosed() bool {
-	return atomic.LoadUint32(&m.closed) == 1
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
 }
