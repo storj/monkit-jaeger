@@ -26,18 +26,14 @@ func StartMockAgent(hostPort string) (*MockAgent, error) {
 	if err != nil {
 		return nil, err
 	}
-	var w sync.WaitGroup
 	mock := &MockAgent{
 		batches: make([]*jaeger.Batch, 0),
 		mux:     &sync.Mutex{},
 		conn:    conn,
 		addr:    conn.LocalAddr().String(),
-		started: &w,
 	}
 
-	w.Add(1)
-	go mock.serve()
-	w.Wait()
+	mock.serve()
 	return mock, err
 }
 
@@ -48,7 +44,6 @@ type MockAgent struct {
 	closed  uint32
 	mux     *sync.Mutex
 	batches []*jaeger.Batch
-	started *sync.WaitGroup
 }
 
 // EmitBatch implements jaeger agent interface.
@@ -84,16 +79,16 @@ func (m *MockAgent) serve() {
 	protocolFact := thrift.NewTCompactProtocolFactory()
 	trans := thrift.NewTMemoryBufferLen(maxPacketSize)
 	buf := make([]byte, maxPacketSize)
-	m.started.Done()
-
-	for !m.isClosed() {
-		n, err := m.conn.Read(buf)
-		if err == nil {
-			trans.Write(buf[:n])
-			protocol := protocolFact.GetProtocol(trans)
-			_, _ = handler.Process(context.Background(), protocol, protocol)
+	go func() {
+		for !m.isClosed() {
+			n, err := m.conn.Read(buf)
+			if err == nil {
+				trans.Write(buf[:n])
+				protocol := protocolFact.GetProtocol(trans)
+				_, _ = handler.Process(context.Background(), protocol, protocol)
+			}
 		}
-	}
+	}()
 }
 
 func (m *MockAgent) isClosed() bool {
