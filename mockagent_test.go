@@ -28,7 +28,7 @@ func StartMockAgent(t *testing.T, f func(mock *MockAgent)) {
 		wg.Done()
 	}()
 
-	<-mock.started
+	mock.WaitForStart()
 
 	f(mock)
 
@@ -103,7 +103,7 @@ func (m *MockAgent) Serve() error {
 	trans := thrift.NewTMemoryBufferLen(maxPacketSize)
 	buf := make([]byte, maxPacketSize)
 
-	m.started <- struct{}{}
+	close(m.started)
 	for !m.isClosed() {
 		n, err := m.conn.Read(buf)
 		if err == nil {
@@ -113,6 +113,10 @@ func (m *MockAgent) Serve() error {
 		}
 	}
 	return nil
+}
+
+func (m *MockAgent) WaitForStart() {
+	<-m.started
 }
 
 func (m *MockAgent) isClosed() bool {
