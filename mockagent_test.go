@@ -86,6 +86,7 @@ func (m *MockAgent) Close() error {
 	return m.conn.Close()
 }
 
+// Serve starts the mock agent.
 func (m *MockAgent) Serve() error {
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	if err != nil {
@@ -115,6 +116,7 @@ func (m *MockAgent) Serve() error {
 	return nil
 }
 
+// WaitForStart returns when mock agent server is ready.
 func (m *MockAgent) WaitForStart() {
 	<-m.started
 }
