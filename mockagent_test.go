@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -15,24 +16,22 @@ import (
 )
 
 // StartMockAgent starts a mock agent on a local udp port.
-func StartMockAgent(hostPort string) (*MockAgent, error) {
-	addr, err := net.ResolveUDPAddr("udp", hostPort)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.ListenUDP(addr.Network(), addr)
-	if err != nil {
-		return nil, err
-	}
-	mock := &MockAgent{
-		batches: make([]*jaeger.Batch, 0),
-		mu:      &sync.Mutex{},
-		conn:    conn,
-		addr:    conn.LocalAddr().String(),
-	}
+func StartMockAgent(t *testing.T, f func(mock *MockAgent)) {
+	mock := NewMockAgent()
 
-	mock.serve()
-	return mock, err
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		mock.Serve()
+		wg.Done()
+	}()
+
+	<-mock.started
+
+	f(mock)
+
+	mock.Close()
+	wg.Wait()
 }
 
 // MockAgent implements jaeger agent interface.
@@ -41,8 +40,17 @@ type MockAgent struct {
 	addr string
 
 	mu      *sync.Mutex
+	started chan struct{}
 	closed  bool
 	batches []*jaeger.Batch
+}
+
+func NewMockAgent() *MockAgent {
+	return &MockAgent{
+		batches: make([]*jaeger.Batch, 0),
+		mu:      &sync.Mutex{},
+		started: make(chan struct{}),
+	}
 }
 
 // EmitBatch implements jaeger agent interface.
@@ -76,21 +84,33 @@ func (m *MockAgent) Close() error {
 	return m.conn.Close()
 }
 
-func (m *MockAgent) serve() {
+func (m *MockAgent) Serve() error {
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	m.conn, err = net.ListenUDP(addr.Network(), addr)
+	if err != nil {
+		return err
+	}
+
+	m.addr = m.conn.LocalAddr().String()
+
 	handler := agent.NewAgentProcessor(m)
 	protocolFact := thrift.NewTCompactProtocolFactory()
 	trans := thrift.NewTMemoryBufferLen(maxPacketSize)
 	buf := make([]byte, maxPacketSize)
-	go func() {
-		for !m.isClosed() {
-			n, err := m.conn.Read(buf)
-			if err == nil {
-				trans.Write(buf[:n])
-				protocol := protocolFact.GetProtocol(trans)
-				_, _ = handler.Process(context.Background(), protocol, protocol)
-			}
+
+	m.started <- struct{}{}
+	for !m.isClosed() {
+		n, err := m.conn.Read(buf)
+		if err == nil {
+			trans.Write(buf[:n])
+			protocol := protocolFact.GetProtocol(trans)
+			_, _ = handler.Process(context.Background(), protocol, protocol)
 		}
-	}()
+	}
+	return nil
 }
 
 func (m *MockAgent) isClosed() bool {
