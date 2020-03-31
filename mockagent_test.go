@@ -39,7 +39,7 @@ type MockAgent struct {
 	conn *net.UDPConn
 	addr string
 
-	mu      *sync.Mutex
+	mu      sync.Mutex
 	started chan struct{}
 	closed  bool
 	batches []*jaeger.Batch
@@ -48,7 +48,6 @@ type MockAgent struct {
 func NewMockAgent() *MockAgent {
 	return &MockAgent{
 		batches: make([]*jaeger.Batch, 0),
-		mu:      &sync.Mutex{},
 		started: make(chan struct{}),
 	}
 }
