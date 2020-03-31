@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
@@ -16,8 +17,8 @@ import (
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
-// StartMockAgent starts a mock agent on a local udp port.
-func StartMockAgent(t *testing.T, f func(mock *MockAgent)) {
+// withAgent starts a mock agent on a local udp port.
+func withAgent(t *testing.T, f func(mock *MockAgent)) {
 	mock := NewMockAgent()
 
 	var wg sync.WaitGroup
@@ -42,7 +43,7 @@ type MockAgent struct {
 	conn *net.UDPConn
 	addr string
 
-	mu      sync.Mutex
+	cond    *sync.Cond
 	started chan struct{}
 	closed  bool
 	batches []*jaeger.Batch
@@ -50,6 +51,7 @@ type MockAgent struct {
 
 func NewMockAgent() *MockAgent {
 	return &MockAgent{
+		cond:    sync.NewCond(new(sync.Mutex)),
 		batches: make([]*jaeger.Batch, 0),
 		started: make(chan struct{}),
 	}
@@ -57,16 +59,36 @@ func NewMockAgent() *MockAgent {
 
 // EmitBatch implements jaeger agent interface.
 func (m *MockAgent) EmitBatch(ctx context.Context, batch *jaeger.Batch) (err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.cond.L.Lock()
+	defer m.cond.L.Unlock()
+
 	m.batches = append(m.batches, batch)
+	m.cond.Broadcast()
+
 	return nil
 }
 
-// GetBatches returns batches jaeger agent received.
-func (m *MockAgent) GetBatches() []*jaeger.Batch {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *MockAgent) WaitForBatches(dur time.Duration) []*jaeger.Batch {
+	done := false
+	timer := time.AfterFunc(dur, func() {
+		m.cond.L.Lock()
+		done = true
+		m.cond.L.Unlock()
+		m.cond.Broadcast()
+	})
+	defer timer.Stop()
+
+	m.cond.L.Lock()
+	defer m.cond.L.Unlock()
+
+	for len(m.batches) == 0 && !done {
+		m.cond.Wait()
+	}
+
+	if done {
+		return nil
+	}
+
 	batches := make([]*jaeger.Batch, len(m.batches))
 	copy(batches, m.batches)
 	return batches
@@ -79,9 +101,9 @@ func (m *MockAgent) Addr() string {
 
 // Close shutdown mock agent server.
 func (m *MockAgent) Close() error {
-	m.mu.Lock()
+	m.cond.L.Lock()
 	m.closed = true
-	m.mu.Unlock()
+	m.cond.L.Unlock()
 
 	return m.conn.Close()
 }
@@ -122,7 +144,7 @@ func (m *MockAgent) WaitForStart() {
 }
 
 func (m *MockAgent) isClosed() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.cond.L.Lock()
+	defer m.cond.L.Unlock()
 	return m.closed
 }

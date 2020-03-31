@@ -6,10 +6,12 @@ package jaeger
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/common/testcontext"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
@@ -18,65 +20,85 @@ type expected struct {
 	hasParentID   bool
 	tags          []*jaeger.Tag
 }
-type testCollector struct {
-	t        *testing.T
-	expected *expected
-}
-
-func (c *testCollector) Collect(s *jaeger.Span) {
-	require.Contains(c.t, s.GetOperationName(), c.expected.operationName)
-	require.Equal(c.t, c.expected.hasParentID, s.GetParentSpanId() != 0)
-	require.Equal(c.t, len(c.expected.tags), len(s.GetTags()))
-	for i := range c.expected.tags {
-		expectedTag := c.expected.tags[i]
-		actualTag, ok := findTag(expectedTag.GetKey(), s)
-		require.True(c.t, ok)
-		require.Equal(c.t, expectedTag.GetVType(), actualTag.GetVType())
-	}
-}
-
-func newTestCollector(t *testing.T, testCase *expected) *testCollector {
-	return &testCollector{
-		t:        t,
-		expected: testCase,
-	}
-}
 
 func TestRegisterJaeger(t *testing.T) {
-	cases := expected{
-		operationName: "test-register",
-		hasParentID:   false,
-		tags:          make([]*jaeger.Tag, 0),
-	}
-	collector := newTestCollector(t, &cases)
+	ctx := testcontext.New(t)
 
-	r := monkit.Default
-	RegisterJaeger(r, collector, Options{
-		Fraction: 1,
-	})
-	newTrace(r.Package(), cases.operationName)
-
-	cases = expected{
-		operationName: "test-register-parent",
-		hasParentID:   true,
-		tags:          make([]*jaeger.Tag, 0),
-	}
-	collector.expected = &cases
-	newTraceWithParent(context.Background(), r.Package(), cases.operationName)
-
-	cases = expected{
-		operationName: "test-register-tags",
-		hasParentID:   false,
-		tags:          make([]*jaeger.Tag, 0),
-	}
 	tagValue := "test"
-	cases.tags = append(cases.tags, &jaeger.Tag{
-		Key:   "arg_0",
-		VType: jaeger.TagType_STRING,
-		VStr:  &tagValue,
-	})
-	collector.expected = &cases
-	newTraceWithTags(r.Package(), cases.operationName, tagValue)
+	testcases := []struct {
+		e expected
+		f func(*monkit.Registry, expected)
+	}{
+		{
+			e: expected{
+				operationName: "test-register",
+				hasParentID:   false,
+				tags:          nil,
+			},
+			f: func(r *monkit.Registry, e expected) {
+				newTrace(r.Package(), e.operationName)
+			},
+		},
+		{
+			e: expected{
+				operationName: "test-register-parent",
+				hasParentID:   true,
+				tags:          nil,
+			},
+			f: func(r *monkit.Registry, e expected) {
+				newTraceWithParent(ctx, r.Package(), e.operationName)
+			},
+		},
+		{
+			e: expected{
+				operationName: "test-register-tags",
+				hasParentID:   false,
+				tags: []*jaeger.Tag{
+					{
+						Key:   "arg_0",
+						VType: jaeger.TagType_STRING,
+						VStr:  &tagValue,
+					},
+				},
+			},
+			f: func(r *monkit.Registry, e expected) {
+				newTraceWithTags(r.Package(), e.operationName, tagValue)
+			},
+		},
+	}
+
+	for _, test := range testcases {
+		test := test
+		t.Run(test.e.operationName, func(t *testing.T) {
+			withAgent(t, func(agent *MockAgent) {
+				withCollector(ctx, t, agent.Addr(), 0, true, func(collector *UDPCollector) {
+					r := monkit.NewRegistry()
+					RegisterJaeger(r, collector, Options{
+						Fraction: 1,
+					})
+
+					test.f(r, test.e)
+
+					batches := agent.WaitForBatches(time.Second)
+					require.True(t, len(batches) > 0)
+
+					spans := batches[0].GetSpans()
+					require.True(t, len(spans) > 0)
+
+					span := spans[0]
+					require.Contains(t, span.GetOperationName(), test.e.operationName)
+					require.Equal(t, test.e.hasParentID, span.GetParentSpanId() != 0)
+					require.Equal(t, len(test.e.tags), len(span.GetTags()))
+					for _, tag := range test.e.tags {
+						actualTag, ok := findTag(tag.GetKey(), span)
+						require.True(t, ok)
+						require.Equal(t, tag.GetVType(), actualTag.GetVType())
+						require.Equal(t, "\""+tag.GetVStr()+"\"", actualTag.GetVStr())
+					}
+				})
+			})
+		})
+	}
 }
 
 func newTrace(mon *monkit.Scope, name string) {

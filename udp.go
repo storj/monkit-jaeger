@@ -6,43 +6,75 @@ package jaeger
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
+	"sync"
 
 	"github.com/apache/thrift/lib/go/thrift"
+	"github.com/zeebo/errs"
+	"go.uber.org/zap"
 
 	"storj.io/monkit-jaeger/gen-go/agent"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
 const (
-	maxPacketSize = 8192
+	// max size of UDP packet we can send to jaeger-agent
+	// for more detail, see https://github.com/jaegertracing/jaeger-client-go/blob/1db6ae67694d13f4ecb454cd65b40034a687118a/utils/udp_client.go#L30
+	maxPacketSize = 65000
+
+	// jaeger-client-go has calculation for how this number is set.
+	// see: https://github.com/jaegertracing/jaeger-client-go/blob/e75ea75c424f3127125aad39056a2718a3b5aa1d/transport_udp.go#L33
+	emitBatchOverhead = 70
+
+	// defaultQueueSize is the default size of the span queue.
+	defaultQueueSize = 1000
+
+	// estimateSpanSize is the estimation size of a span we pre-allocate for pricise span size calculation.
+	estimateSpanSize = 600
 )
 
 // UDPCollector matches the TraceCollector interface, but sends serialized
 // jaeger.Span objects over UDP, instead of the Scribe protocol. See
 // RedirectPackets for the UDP server-side code.
 type UDPCollector struct {
-	ch            chan *jaeger.Span
-	process       *jaeger.Process
-	client        *agent.AgentClient
-	conn          *net.UDPConn
-	thriftBuffer  *thrift.TMemoryBuffer
-	maxPacketSize int
-	batchSeqNo    int64
+	mu               sync.Mutex
+	spansToSend      []*jaeger.Span        // the spans waiting to be send to the agent
+	thriftBuffer     *thrift.TMemoryBuffer // the buffer where we encode data to send to the agent
+	currentSpanBytes int                   // the current bytes used by spans when they are encoded into thrift buffer
+
+	log              *zap.Logger
+	ch               chan *jaeger.Span
+	process          *jaeger.Process // the information of which process is sending the spans
+	client           *agent.AgentClient
+	conn             *net.UDPConn
+	maxSpanBytes     int                   // the max bytes spans can take up to make sure we don't exceed maxPacketSize
+	maxPacketSize    int                   // the max number of bytes this instance of UDPCollector allows for a single UDP packet
+	spanSizeBuffer   *thrift.TMemoryBuffer // spanSizeBuffer helps us calculate the size of the span when thrift-encoded
+	thriftProtocol   thrift.TProtocol
+	spanSizeProtocol thrift.TProtocol
+	batchSeqNo       int64
 }
 
-// NewUDPCollector creates a UDPCollector that sends packets to collector_addr.
-// buffer_size is how many outstanding unsent jaeger.Span objects can exist
-// before Spans start getting dropped.
-func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string, tags []Tag) (
+// NewUDPCollector creates a UDPCollector that sends packets to jaeger agent.
+func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags []Tag, packetSize, queueSize int) (
 	*UDPCollector, error) {
 
-	thriftBuffer := thrift.NewTMemoryBufferLen(bufferSize)
+	if packetSize == 0 {
+		packetSize = maxPacketSize
+	}
+
+	if queueSize == 0 {
+		queueSize = defaultQueueSize
+	}
+
+	thriftBuffer := thrift.NewTMemoryBufferLen(packetSize)
+	spanSizeBuffer := thrift.NewTMemoryBufferLen(estimateSpanSize)
 	protocolFactory := thrift.NewTCompactProtocolFactory()
+	thriftProtocol := protocolFactory.GetProtocol(thriftBuffer)
+	spanSizeProtocol := protocolFactory.GetProtocol(spanSizeBuffer)
 	client := agent.NewAgentClientFactory(thriftBuffer, protocolFactory)
 
-	destAddr, err := net.ResolveUDPAddr("udp", collectorAddr)
+	destAddr, err := net.ResolveUDPAddr("udp", agentAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +83,7 @@ func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string, t
 	for _, tag := range tags {
 		j, err := tag.BuildJaegerThrift()
 		if err != nil {
-			log.Printf("failed to convert to jaeger tags: %v", err)
+			log.Info("failed to convert to jaeger tags", zap.Error(err))
 			continue
 		}
 		jaegerTags = append(jaegerTags, j)
@@ -61,58 +93,125 @@ func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string, t
 	if err != nil {
 		return nil, err
 	}
-	if err := connUDP.SetWriteBuffer(maxPacketSize); err != nil {
+	if err := connUDP.SetWriteBuffer(packetSize); err != nil {
 		return nil, err
 	}
-	c := &UDPCollector{
-		ch:            make(chan *jaeger.Span, bufferSize),
-		client:        client,
-		conn:          connUDP,
-		thriftBuffer:  thriftBuffer,
-		maxPacketSize: bufferSize,
-		process: &jaeger.Process{
-			ServiceName: serviceName,
-			Tags:        jaegerTags,
-		},
+
+	jaegerProcess := &jaeger.Process{
+		ServiceName: serviceName,
+		Tags:        jaegerTags,
 	}
-	go c.handle()
+
+	processByteSize, err := calculateThriftSize(jaegerProcess, spanSizeBuffer, spanSizeProtocol)
+	if err != nil {
+		return nil, err
+	}
+
+	c := &UDPCollector{
+		log:              log,
+		ch:               make(chan *jaeger.Span, queueSize),
+		client:           client,
+		conn:             connUDP,
+		maxSpanBytes:     packetSize - emitBatchOverhead - processByteSize,
+		spanSizeBuffer:   spanSizeBuffer,
+		thriftBuffer:     thriftBuffer,
+		thriftProtocol:   thriftProtocol,
+		spanSizeProtocol: spanSizeProtocol,
+		maxPacketSize:    packetSize,
+		process:          jaegerProcess,
+	}
+
 	return c, nil
 }
 
-func (c *UDPCollector) handle() {
+// Run reads spans off the queue and appends them to the buffer. When the
+// buffer fills up, it periodically flushes.
+func (c *UDPCollector) Run(ctx context.Context) {
 	for {
-		s, ok := <-c.ch
-		if !ok {
+		select {
+		case s := <-c.ch:
+			err := c.handleSpan(ctx, s)
+			if err != nil {
+				c.log.Error("failed to handle span", zap.Error(err))
+			}
+		case <-ctx.Done():
 			return
-		}
-		err := c.Send(s)
-		if err != nil {
-			log.Printf("failed write: %v", err)
 		}
 	}
 }
 
+// handleSpan adds a new span into the buffer.
+func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	spanSize, err := calculateThriftSize(s, c.spanSizeBuffer, c.spanSizeProtocol)
+	if err != nil {
+		return errs.Wrap(err)
+	}
+
+	if spanSize > c.maxSpanBytes {
+		mon.Counter("jaeger-span-too-large").Inc(1)
+		return errs.New("span is too large")
+	}
+
+	c.mu.Lock()
+	currentSpanBytes := c.currentSpanBytes
+	c.mu.Unlock()
+
+	if currentSpanBytes+spanSize >= c.maxSpanBytes {
+		if err := c.Send(ctx); err != nil {
+			return errs.Wrap(err)
+		}
+	}
+
+	c.mu.Lock()
+	c.currentSpanBytes += spanSize
+	c.spansToSend = append(c.spansToSend, s)
+	c.mu.Unlock()
+
+	return nil
+}
+
 // Send sends traces to jaeger agent.
-// It's exposed only for testing purpose.
-func (c *UDPCollector) Send(s *jaeger.Span) error {
+func (c *UDPCollector) Send(ctx context.Context) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.spansToSend) == 0 {
+		return nil
+	}
+
 	c.batchSeqNo++
 	batchSeqNo := c.batchSeqNo
 	batch := &jaeger.Batch{
 		Process: c.process,
-		Spans:   []*jaeger.Span{s},
+		Spans:   c.spansToSend,
 		SeqNo:   &batchSeqNo,
 	}
+
+	// Reset the thriftBuffer so that EmitBatch can write onto an empty buffer
 	c.thriftBuffer.Reset()
-	if err := c.client.EmitBatch(context.Background(), batch); err != nil {
-		return err
+	if err := c.client.EmitBatch(ctx, batch); err != nil {
+		return errs.Wrap(err)
 	}
+
+	// Reset the span buffer no matter we succeed or not to prevent getting into an infinite loop
+	// it probably is ok if we lose one batch of trace since these are just metrics data
+	defer c.resetSpanBuffer()
 	if c.thriftBuffer.Len() > c.maxPacketSize {
+		mon.Counter("jaeger-exceeds-packet-size").Inc(1)
 		return fmt.Errorf("data does not fit within one UDP packet; size %d, max %d, spans %d",
 			c.thriftBuffer.Len(), c.maxPacketSize, len(batch.Spans))
 	}
-	_, err := c.conn.Write(c.thriftBuffer.Bytes())
-	return err
 
+	_, err = c.conn.Write(c.thriftBuffer.Bytes())
+	if err != nil {
+		return errs.Wrap(err)
+	}
+
+	return nil
 }
 
 // Collect takes a jaeger.Span object, serializes it, and sends it to the
@@ -121,5 +220,24 @@ func (c *UDPCollector) Collect(span *jaeger.Span) {
 	select {
 	case c.ch <- span:
 	default:
+		mon.Counter("jaeger-buffer-full").Inc(1)
 	}
+}
+
+func (c *UDPCollector) resetSpanBuffer() {
+	for i := range c.spansToSend {
+		c.spansToSend[i] = nil
+	}
+	c.spansToSend = c.spansToSend[:0]
+	c.currentSpanBytes = 0
+}
+
+func calculateThriftSize(data thrift.TStruct, buffer *thrift.TMemoryBuffer, protocol thrift.TProtocol) (int, error) {
+	buffer.Reset()
+	err := data.Write(protocol)
+	if err != nil {
+		return 0, err
+	}
+
+	return buffer.Len(), nil
 }
