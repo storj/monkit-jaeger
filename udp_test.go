@@ -33,7 +33,7 @@ func TestUDPCollector(t *testing.T) {
 	}
 	collector.Collect(span)
 
-	data := mock.GetBatches()
+	var data []*jaeger.Batch
 	for i := 0; i < 1000; i++ {
 		time.Sleep(1 * time.Millisecond)
 		data = mock.GetBatches()
