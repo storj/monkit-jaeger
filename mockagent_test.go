@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
+	"github.com/stretchr/testify/require"
 
 	"storj.io/monkit-jaeger/gen-go/agent"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
@@ -22,7 +23,8 @@ func StartMockAgent(t *testing.T, f func(mock *MockAgent)) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		mock.Serve()
+		err := mock.Serve()
+		require.NoError(t, err)
 		wg.Done()
 	}()
 
@@ -30,7 +32,8 @@ func StartMockAgent(t *testing.T, f func(mock *MockAgent)) {
 
 	f(mock)
 
-	mock.Close()
+	err := mock.Close()
+	require.NoError(t, err)
 	wg.Wait()
 }
 
