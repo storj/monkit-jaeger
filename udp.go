@@ -1,5 +1,4 @@
 // Copyright (C) 2020 Storj Labs, Inc.
-// Copyright (C) 2014 Space Monkey, Inc.
 // See LICENSE for copying information.
 
 package jaeger
@@ -25,7 +24,7 @@ const (
 // RedirectPackets for the UDP server-side code.
 type UDPCollector struct {
 	ch            chan *jaeger.Span
-	serviceName   string
+	process       *jaeger.Process
 	client        *agent.AgentClient
 	conn          *net.UDPConn
 	thriftBuffer  *thrift.TMemoryBuffer
@@ -36,7 +35,7 @@ type UDPCollector struct {
 // NewUDPCollector creates a UDPCollector that sends packets to collector_addr.
 // buffer_size is how many outstanding unsent jaeger.Span objects can exist
 // before Spans start getting dropped.
-func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string) (
+func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string, tags []Tag) (
 	*UDPCollector, error) {
 
 	thriftBuffer := thrift.NewTMemoryBufferLen(bufferSize)
@@ -48,6 +47,16 @@ func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string) (
 		return nil, err
 	}
 
+	jaegerTags := make([]*jaeger.Tag, 0, len(tags))
+	for _, tag := range tags {
+		j, err := tag.BuildJaegerThrift()
+		if err != nil {
+			log.Printf("failed to convert to jaeger tags: %v", err)
+			continue
+		}
+		jaegerTags = append(jaegerTags, j)
+	}
+
 	connUDP, err := net.DialUDP(destAddr.Network(), nil, destAddr)
 	if err != nil {
 		return nil, err
@@ -57,11 +66,14 @@ func NewUDPCollector(collectorAddr string, bufferSize int, serviceName string) (
 	}
 	c := &UDPCollector{
 		ch:            make(chan *jaeger.Span, bufferSize),
-		serviceName:   serviceName,
 		client:        client,
 		conn:          connUDP,
 		thriftBuffer:  thriftBuffer,
 		maxPacketSize: bufferSize,
+		process: &jaeger.Process{
+			ServiceName: serviceName,
+			Tags:        jaegerTags,
+		},
 	}
 	go c.handle()
 	return c, nil
@@ -73,19 +85,20 @@ func (c *UDPCollector) handle() {
 		if !ok {
 			return
 		}
-		err := c.send(s)
+		err := c.Send(s)
 		if err != nil {
 			log.Printf("failed write: %v", err)
 		}
 	}
 }
 
-func (c *UDPCollector) send(s *jaeger.Span) error {
-	process := &jaeger.Process{ServiceName: c.serviceName}
+// Send sends traces to jaeger agent.
+// It's exposed only for testing purpose.
+func (c *UDPCollector) Send(s *jaeger.Span) error {
 	c.batchSeqNo++
 	batchSeqNo := c.batchSeqNo
 	batch := &jaeger.Batch{
-		Process: process,
+		Process: c.process,
 		Spans:   []*jaeger.Span{s},
 		SeqNo:   &batchSeqNo,
 	}
