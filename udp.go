@@ -44,6 +44,7 @@ type UDPCollector struct {
 
 	log              *zap.Logger
 	ch               chan *jaeger.Span
+	cancel           context.CancelFunc
 	process          *jaeger.Process // the information of which process is sending the spans
 	client           *agent.AgentClient
 	conn             *net.UDPConn
@@ -127,6 +128,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 // Run reads spans off the queue and appends them to the buffer. When the
 // buffer fills up, it periodically flushes.
 func (c *UDPCollector) Run(ctx context.Context) {
+	ctx, c.cancel = context.WithCancel(ctx)
 	for {
 		select {
 		case s := <-c.ch:
@@ -138,6 +140,11 @@ func (c *UDPCollector) Run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// Stop stops the worker created by Run.
+func (c *UDPCollector) Stop() {
+	c.cancel()
 }
 
 // handleSpan adds a new span into the buffer.

@@ -29,11 +29,12 @@ type Options struct {
 
 // RegisterJaeger configures the given Registry reg to send the Spans from some
 // portion of all new Traces to the given TraceCollector.
+// it returns the unregister function.
 func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
-	opts Options) {
+	opts Options) func() {
 	opts.collector = collector
 
-	reg.ObserveTraces(func(t *monkit.Trace) {
+	return reg.ObserveTraces(func(t *monkit.Trace) {
 		sampled, exists := t.Get(sampleKey).(bool)
 		if !exists {
 			sampled = rng.Float64() < opts.Fraction
