@@ -18,11 +18,16 @@ import (
 )
 
 func withCollector(ctx context.Context, t *testing.T, agentAddr string,
-	packetSize int, alwaysSend bool, f func(*UDPCollector)) {
-	collector, err := NewUDPCollector(zaptest.NewLogger(t), agentAddr, "test", nil, packetSize, 0)
-	require.NoError(t, err)
+	packetSize int, interval time.Duration, f func(*UDPCollector)) {
 
-	ctx, cancel := context.WithCancel(ctx)
+	// if the interval is 0 (default), make it incredibly so long it's
+	// impossible for it to trigger during the test
+	if interval == 0 {
+		interval = 24 * time.Hour
+	}
+
+	collector, err := NewUDPCollector(zaptest.NewLogger(t), agentAddr, "test", nil, packetSize, 0, interval)
+	require.NoError(t, err)
 
 	var eg errgroup.Group
 
@@ -31,30 +36,35 @@ func withCollector(ctx context.Context, t *testing.T, agentAddr string,
 		return nil
 	})
 
-	if alwaysSend {
-		eg.Go(func() error {
-			for {
-				if ctx.Err() != nil {
-					return nil
-				}
-				err := collector.Send(ctx)
-				if err != nil {
-					return err
-				}
-			}
-		})
-	}
-
 	f(collector)
-
-	cancel()
+	collector.Stop()
 	require.NoError(t, eg.Wait())
+}
+
+func TestSendIsTriggeredByInterval(t *testing.T) {
+	ctx := testcontext.New(t)
+	withAgent(t, func(mock *MockAgent) {
+		withCollector(ctx, t, mock.Addr(), 99999999, time.Nanosecond, func(collector *UDPCollector) {
+
+			// let's fill it with a one span
+			collector.Collect(&jaeger.Span{
+				TraceIdLow:    monkit.NewId(),
+				SpanId:        monkit.NewId(),
+				OperationName: "test-udp-collector",
+				StartTime:     time.Now().UnixNano() / 1000,
+				Duration:      time.Second.Microseconds(),
+			})
+
+			batches := mock.WaitForBatches(time.Second)
+			require.Equal(t, len(batches), 1)
+		})
+	})
 }
 
 func TestSendIsTriggeredByManySpans(t *testing.T) {
 	ctx := testcontext.New(t)
 	withAgent(t, func(mock *MockAgent) {
-		withCollector(ctx, t, mock.Addr(), 200, false, func(collector *UDPCollector) {
+		withCollector(ctx, t, mock.Addr(), 200, 0, func(collector *UDPCollector) {
 
 			// let's fill it with a number of spans
 			for i := 0; i < 100; i++ {
@@ -76,7 +86,7 @@ func TestSendIsTriggeredByManySpans(t *testing.T) {
 func TestUDPCollector(t *testing.T) {
 	ctx := testcontext.New(t)
 	withAgent(t, func(mock *MockAgent) {
-		withCollector(ctx, t, mock.Addr(), 0, true, func(collector *UDPCollector) {
+		withCollector(ctx, t, mock.Addr(), 0, time.Nanosecond, func(collector *UDPCollector) {
 			span := &jaeger.Span{
 				TraceIdLow:    monkit.NewId(),
 				SpanId:        monkit.NewId(),

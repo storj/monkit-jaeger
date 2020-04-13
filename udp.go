@@ -6,8 +6,10 @@ package jaeger
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/zeebo/errs"
@@ -29,6 +31,9 @@ const (
 	// defaultQueueSize is the default size of the span queue.
 	defaultQueueSize = 1000
 
+	// defaultFlushInterval is the default interval to send data on ticker
+	defaultFlushInterval = 5 * time.Minute
+
 	// estimateSpanSize is the estimation size of a span we pre-allocate for pricise span size calculation.
 	estimateSpanSize = 600
 )
@@ -44,6 +49,7 @@ type UDPCollector struct {
 
 	log              *zap.Logger
 	ch               chan *jaeger.Span
+	flushInterval    time.Duration
 	cancel           context.CancelFunc
 	process          *jaeger.Process // the information of which process is sending the spans
 	client           *agent.AgentClient
@@ -57,7 +63,7 @@ type UDPCollector struct {
 }
 
 // NewUDPCollector creates a UDPCollector that sends packets to jaeger agent.
-func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags []Tag, packetSize, queueSize int) (
+func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags []Tag, packetSize, queueSize int, flushInterval time.Duration) (
 	*UDPCollector, error) {
 
 	if packetSize == 0 {
@@ -66,6 +72,10 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 
 	if queueSize == 0 {
 		queueSize = defaultQueueSize
+	}
+
+	if flushInterval == 0 {
+		flushInterval = defaultFlushInterval
 	}
 
 	thriftBuffer := thrift.NewTMemoryBufferLen(packetSize)
@@ -112,6 +122,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 		log:              log,
 		ch:               make(chan *jaeger.Span, queueSize),
 		client:           client,
+		flushInterval:    flushInterval,
 		conn:             connUDP,
 		maxSpanBytes:     packetSize - emitBatchOverhead - processByteSize,
 		spanSizeBuffer:   spanSizeBuffer,
@@ -126,9 +137,10 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 }
 
 // Run reads spans off the queue and appends them to the buffer. When the
-// buffer fills up, it periodically flushes.
+// buffer fills up, it flushes. It also flushes on a jittered interval.
 func (c *UDPCollector) Run(ctx context.Context) {
 	ctx, c.cancel = context.WithCancel(ctx)
+	ticker := time.NewTicker(jitter(c.flushInterval))
 	for {
 		select {
 		case s := <-c.ch:
@@ -136,7 +148,14 @@ func (c *UDPCollector) Run(ctx context.Context) {
 			if err != nil {
 				c.log.Error("failed to handle span", zap.Error(err))
 			}
+		case <-ticker.C:
+			if err := c.Send(ctx); err != nil {
+				c.log.Error("failed to send on ticker", zap.Error(err))
+			}
+			ticker.Stop()
+			ticker = time.NewTicker(jitter(c.flushInterval))
 		case <-ctx.Done():
+			ticker.Stop()
 			return
 		}
 	}
@@ -247,4 +266,12 @@ func calculateThriftSize(data thrift.TStruct, buffer *thrift.TMemoryBuffer, prot
 	}
 
 	return buffer.Len(), nil
+}
+
+func jitter(t time.Duration) time.Duration {
+	nanos := rand.NormFloat64()*float64(t/4) + float64(t)
+	if nanos <= 0 {
+		nanos = 1
+	}
+	return time.Duration(nanos)
 }
