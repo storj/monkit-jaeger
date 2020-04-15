@@ -146,6 +146,7 @@ func (c *UDPCollector) Run(ctx context.Context) {
 		case s := <-c.ch:
 			err := c.handleSpan(ctx, s)
 			if err != nil {
+				mon.Counter("jaeger-span-handling-failure").Inc(1)
 				c.log.Error("failed to handle span", zap.Error(err))
 			}
 		case <-ticker.C:
@@ -168,8 +169,6 @@ func (c *UDPCollector) Stop() {
 
 // handleSpan adds a new span into the buffer.
 func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err error) {
-	defer mon.Task()(&ctx)(&err)
-
 	spanSize, err := calculateThriftSize(s, c.spanSizeBuffer, c.spanSizeProtocol)
 	if err != nil {
 		return errs.Wrap(err)
@@ -200,8 +199,6 @@ func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err erro
 
 // Send sends traces to jaeger agent.
 func (c *UDPCollector) Send(ctx context.Context) (err error) {
-	defer mon.Task()(&ctx)(&err)
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
