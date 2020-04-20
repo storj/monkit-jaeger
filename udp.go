@@ -15,6 +15,7 @@ import (
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 
+	"storj.io/common/context2"
 	"storj.io/monkit-jaeger/gen-go/agent"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
@@ -157,6 +158,17 @@ func (c *UDPCollector) Run(ctx context.Context) {
 			ticker = time.NewTicker(jitter(c.flushInterval))
 		case <-ctx.Done():
 			ticker.Stop()
+			// drain the channel on shutdown
+			left := len(c.ch)
+			ctxWithoutCancel := context2.WithoutCancellation(ctx)
+			for i := 0; i < left; i++ {
+				s := <-c.ch
+				err := c.handleSpan(ctxWithoutCancel, s)
+				if err != nil {
+					mon.Counter("jaeger-span-handling-failure").Inc(1)
+					c.log.Error("failed to handle span", zap.Error(err))
+				}
+			}
 			return
 		}
 	}
@@ -245,6 +257,12 @@ func (c *UDPCollector) Collect(span *jaeger.Span) {
 	default:
 		mon.Counter("jaeger-buffer-full").Inc(1)
 	}
+}
+
+// Len returns the amount of spans in the queue currently.
+// This is only exposed for testing purpose.
+func (c *UDPCollector) Len() int {
+	return len(c.ch)
 }
 
 func (c *UDPCollector) resetSpanBuffer() {
