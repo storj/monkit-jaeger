@@ -10,14 +10,8 @@ import (
 
 	"github.com/spacemonkeygo/monkit/v3"
 
+	"storj.io/common/rpc/rpctracing"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
-)
-
-type traceKey int
-
-const (
-	sampleKey       traceKey = 0
-	remoteParentKey traceKey = 2
 )
 
 // Options represents the configuration for the register.
@@ -35,10 +29,10 @@ func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 	opts.collector = collector
 
 	return reg.ObserveTraces(func(t *monkit.Trace) {
-		sampled, exists := t.Get(sampleKey).(bool)
+		sampled, exists := t.Get(rpctracing.Sampled).(bool)
 		if !exists {
 			sampled = rng.Float64() < opts.Fraction
-			t.Set(sampleKey, sampled)
+			t.Set(rpctracing.Sampled, sampled)
 		}
 		if sampled {
 			t.ObserveSpans(spanFinishObserverFunc(opts.observeSpan))
@@ -61,7 +55,7 @@ func getParentID(s *monkit.Span) *int64 {
 		parentID := parent.Id()
 		return &parentID
 	}
-	if remoteParentID, ok := s.Trace().Get(remoteParentKey).(int64); ok {
+	if remoteParentID, ok := s.Trace().Get(rpctracing.ParentID).(int64); ok {
 		return &remoteParentID
 	}
 
@@ -71,6 +65,7 @@ func getParentID(s *monkit.Span) *int64 {
 func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 	finish time.Time) {
 	startTime := s.Start().UnixNano() / 1000
+	duration := finish.Sub(s.Start())
 
 	js := &jaeger.Span{
 		TraceIdLow:    s.Trace().Id(),
@@ -78,7 +73,9 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 		OperationName: s.Func().FullName(),
 		SpanId:        s.Id(),
 		StartTime:     startTime,
-		Duration:      s.Duration().Microseconds(),
+		// this is how jaeger client code calculates duration to send to jaeger agent
+		// reference: https://github.com/jaegertracing/jaeger-client-go/blob/master/jaeger_thrift_span.go#L32
+		Duration: duration.Nanoseconds() / int64(time.Microsecond),
 	}
 
 	parentID := getParentID(s)

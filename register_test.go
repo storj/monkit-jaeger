@@ -11,6 +11,7 @@ import (
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/common/rpc/rpctracing"
 	"storj.io/common/testcontext"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
@@ -107,7 +108,7 @@ func newTrace(mon *monkit.Scope, name string) {
 
 func newTraceWithParent(ctx context.Context, mon *monkit.Scope, name string) {
 	newTrace := monkit.NewTrace(monkit.NewId())
-	newTrace.Set(remoteParentKey, monkit.NewId())
+	newTrace.Set(rpctracing.ParentID, monkit.NewId())
 	defer mon.FuncNamed(name).RemoteTrace(&ctx, monkit.NewId(), newTrace)(nil)
 }
 

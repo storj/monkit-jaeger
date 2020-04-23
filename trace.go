@@ -4,7 +4,11 @@
 package jaeger
 
 import (
+	"strconv"
+
 	"github.com/spacemonkeygo/monkit/v3"
+
+	"storj.io/common/rpc/rpctracing"
 )
 
 // remoteTrace is a structure representing an incoming RPC trace.
@@ -16,14 +20,29 @@ type remoteTrace struct {
 }
 
 // RemoteTraceHandler returns a new trace and its root span id based on remote trace information.
-func RemoteTraceHandler(traceID *int64, parentID *int64) (trace *monkit.Trace, spanID int64) {
-	if traceID == nil || parentID == nil {
+func RemoteTraceHandler(remoteInfo map[string]string) (trace *monkit.Trace, spanID int64) {
+	if len(remoteInfo) == 0 {
+		return nil, 0
+	}
+	parentID, err := strconv.ParseInt(remoteInfo[rpctracing.ParentID], 10, 64)
+	if err != nil {
+		return nil, 0
+	}
+
+	traceID, err := strconv.ParseInt(remoteInfo[rpctracing.TraceID], 10, 64)
+	if err != nil {
+		return nil, 0
+	}
+
+	sampled, err := strconv.ParseBool(remoteInfo[rpctracing.Sampled])
+	if err != nil {
 		return nil, 0
 	}
 
 	rem := remoteTrace{
-		traceID:  traceID,
-		parentID: parentID,
+		traceID:  &traceID,
+		parentID: &parentID,
+		sampled:  &sampled,
 	}
 
 	return rem.trace()
@@ -42,11 +61,11 @@ func (rem remoteTrace) trace() (trace *monkit.Trace, spanID int64) {
 	}
 
 	if rem.parentID != nil {
-		trace.Set(remoteParentKey, *rem.parentID)
+		trace.Set(rpctracing.ParentID, *rem.parentID)
 	}
 
 	if rem.sampled != nil {
-		trace.Set(sampleKey, *rem.sampled)
+		trace.Set(rpctracing.Sampled, *rem.sampled)
 	}
 
 	return trace, spanID
