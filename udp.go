@@ -120,7 +120,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 	}
 
 	c := &UDPCollector{
-		log:              log,
+		log:              log.Named("tracing collector"),
 		ch:               make(chan *jaeger.Span, queueSize),
 		client:           client,
 		flushInterval:    flushInterval,
@@ -140,6 +140,8 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 // Run reads spans off the queue and appends them to the buffer. When the
 // buffer fills up, it flushes. It also flushes on a jittered interval.
 func (c *UDPCollector) Run(ctx context.Context) {
+	c.log.Debug("started")
+
 	ctx, c.cancel = context.WithCancel(ctx)
 	ticker := time.NewTicker(jitter(c.flushInterval))
 	for {
@@ -177,6 +179,8 @@ func (c *UDPCollector) Run(ctx context.Context) {
 // Stop stops the worker created by Run.
 func (c *UDPCollector) Stop() {
 	c.cancel()
+
+	c.log.Debug("stopped")
 }
 
 // handleSpan adds a new span into the buffer.
