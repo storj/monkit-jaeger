@@ -57,8 +57,8 @@ github.com/spacemonkeygo/monkit/v3 v3.0.0-20191108235033-eacca33b3037/go.mod h1:
 github.com/spacemonkeygo/monkit/v3 v3.0.4/go.mod h1:JcK1pCbReQsOsMKF/POFSZCq7drXFybgGmbc27tuwes=
 github.com/spacemonkeygo/monkit/v3 v3.0.5 h1:vMW8Ne6WAUU/OMYaSv7KGW9h/sRNgeh6TyBapOSuMhM=
 github.com/spacemonkeygo/monkit/v3 v3.0.5/go.mod h1:JcK1pCbReQsOsMKF/POFSZCq7drXFybgGmbc27tuwes=
-github.com/spacemonkeygo/monkit/v3 v3.0.6-0.20200417171149-7f4a2b305c34 h1:N6DG0i/Qa4+iTVy6rMJ0YpiadnR6VEHi7KvekQ5I1cU=
-github.com/spacemonkeygo/monkit/v3 v3.0.6-0.20200417171149-7f4a2b305c34/go.mod h1:kj1ViJhlyADa7DiA4xVnTuPA46lFKbM7mxQTrXCuJP4=
+github.com/spacemonkeygo/monkit/v3 v3.0.7-0.20200515175308-072401d8c752 h1:WcQDknqg0qajLNYKv3mXgbkWlYs5rPgZehGJFWePHVI=
+github.com/spacemonkeygo/monkit/v3 v3.0.7-0.20200515175308-072401d8c752/go.mod h1:kj1ViJhlyADa7DiA4xVnTuPA46lFKbM7mxQTrXCuJP4=
 github.com/spacemonkeygo/monotime v0.0.0-20180824235756-e3f48a95f98a h1:8+cCjxhToanKmxLIbuyBNe2EnpgwhiivsIaRJstDRFA=
 github.com/spacemonkeygo/monotime v0.0.0-20180824235756-e3f48a95f98a/go.mod h1:ul4bvvnCOPZgq8w0nTkSmWVg/hauVpFS97Am1YM1XXo=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

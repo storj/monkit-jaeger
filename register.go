@@ -92,7 +92,7 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 		}
 		jaegerTag, err := tag.BuildJaegerThrift()
 		if err != nil {
-			log.Printf("failed to convert tag to jaeger format: %v", err)
+			log.Printf("failed to convert annotation to jaeger format: %v", err)
 		}
 		tags = append(tags, jaegerTag)
 	}
@@ -108,6 +108,32 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 			log.Printf("failed to convert args to jaeger format: %v", err)
 		}
 		tags = append(tags, jaegerTag)
+	}
+
+	// only attach trace metadata to the root span
+	if s.Parent() == nil {
+		for k, v := range s.Trace().GetAll() {
+			key, ok := k.(string)
+			if !ok {
+				continue
+			}
+
+			if key == rpctracing.ParentID ||
+				key == rpctracing.Sampled ||
+				key == rpctracing.TraceID {
+				continue
+			}
+			tag := Tag{
+				Key:   key,
+				Value: v,
+			}
+
+			jaegerTag, err := tag.BuildJaegerThrift()
+			if err != nil {
+				log.Printf("failed to convert tag to jaeger format: %v", err)
+			}
+			tags = append(tags, jaegerTag)
+		}
 	}
 
 	js.Tags = tags

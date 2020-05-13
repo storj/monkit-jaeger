@@ -5,6 +5,7 @@ package jaeger
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -25,7 +26,9 @@ type expected struct {
 func TestRegisterJaeger(t *testing.T) {
 	ctx := testcontext.New(t)
 
+	tagKey := "test-key"
 	tagValue := "test"
+	argValue := fmt.Sprintf("%#v", tagValue) // format from monkit
 	testcases := []struct {
 		e expected
 		f func(*monkit.Registry, expected)
@@ -52,18 +55,36 @@ func TestRegisterJaeger(t *testing.T) {
 		},
 		{
 			e: expected{
-				operationName: "test-register-tags",
+				operationName: "test-register-args",
 				hasParentID:   false,
 				tags: []*jaeger.Tag{
 					{
 						Key:   "arg_0",
+						VType: jaeger.TagType_STRING,
+						VStr:  &argValue,
+					},
+				},
+			},
+			f: func(r *monkit.Registry, e expected) {
+				newTraceWithArgs(r.Package(), e.operationName, tagValue)
+			},
+		},
+		{
+			e: expected{
+				operationName: "test-register-trace-tags",
+				hasParentID:   false,
+				tags: []*jaeger.Tag{
+					{
+						Key:   tagKey,
 						VType: jaeger.TagType_STRING,
 						VStr:  &tagValue,
 					},
 				},
 			},
 			f: func(r *monkit.Registry, e expected) {
-				newTraceWithTags(r.Package(), e.operationName, tagValue)
+				newTraceWithTags(r.Package(), e.operationName, map[string]string{
+					tagKey: tagValue,
+				})
 			},
 		},
 	}
@@ -94,7 +115,7 @@ func TestRegisterJaeger(t *testing.T) {
 						actualTag, ok := findTag(tag.GetKey(), span)
 						require.True(t, ok)
 						require.Equal(t, tag.GetVType(), actualTag.GetVType())
-						require.Equal(t, "\""+tag.GetVStr()+"\"", actualTag.GetVStr())
+						require.Equal(t, tag.GetVStr(), actualTag.GetVStr())
 					}
 				})
 			})
@@ -112,8 +133,17 @@ func newTraceWithParent(ctx context.Context, mon *monkit.Scope, name string) {
 	defer mon.FuncNamed(name).RemoteTrace(&ctx, monkit.NewId(), newTrace)(nil)
 }
 
-func newTraceWithTags(mon *monkit.Scope, name string, tag string) {
+func newTraceWithArgs(mon *monkit.Scope, name string, tag string) {
 	defer mon.TaskNamed(name)(nil, tag)(nil)
+}
+
+func newTraceWithTags(mon *monkit.Scope, name string, tag map[string]string) {
+	ctx := context.Background()
+	defer mon.TaskNamed(name)(&ctx)(nil)
+	s := monkit.SpanFromCtx(ctx)
+	for k, v := range tag {
+		s.Trace().Set(k, v)
+	}
 }
 
 func findTag(key string, s *jaeger.Span) (*jaeger.Tag, bool) {

@@ -4,7 +4,7 @@ go 1.13
 
 require (
 	github.com/apache/thrift v0.12.0
-	github.com/spacemonkeygo/monkit/v3 v3.0.6-0.20200417171149-7f4a2b305c34
+	github.com/spacemonkeygo/monkit/v3 v3.0.7-0.20200515175308-072401d8c752
 	github.com/stretchr/testify v1.5.1
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.14.1
