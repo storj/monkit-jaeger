@@ -42,6 +42,7 @@ func withCollector(ctx context.Context, t *testing.T, agentAddr string,
 
 	// Ensure the collector queue has been drained on shutdown
 	require.Zero(t, collector.Len())
+	require.NoError(t, collector.Close())
 }
 
 func TestSendIsTriggeredByInterval(t *testing.T) {

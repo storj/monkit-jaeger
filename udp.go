@@ -183,6 +183,11 @@ func (c *UDPCollector) Stop() {
 	c.log.Debug("stopped")
 }
 
+// Close shutdown the underlying udp connection.
+func (c *UDPCollector) Close() error {
+	return c.conn.Close()
+}
+
 // handleSpan adds a new span into the buffer.
 func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err error) {
 	spanSize, err := calculateThriftSize(s, c.spanSizeBuffer, c.spanSizeProtocol)
