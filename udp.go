@@ -105,7 +105,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 		return nil, err
 	}
 	if err := connUDP.SetWriteBuffer(packetSize); err != nil {
-		return nil, err
+		return nil, errs.Combine(err, connUDP.Close())
 	}
 
 	jaegerProcess := &jaeger.Process{
@@ -115,10 +115,10 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 
 	processByteSize, err := calculateThriftSize(jaegerProcess, spanSizeBuffer, spanSizeProtocol)
 	if err != nil {
-		return nil, err
+		return nil, errs.Combine(err, connUDP.Close())
 	}
 
-	c := &UDPCollector{
+	return &UDPCollector{
 		log:              log.Named("tracing collector"),
 		ch:               make(chan *jaeger.Span, queueSize),
 		client:           client,
@@ -131,9 +131,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 		spanSizeProtocol: spanSizeProtocol,
 		maxPacketSize:    packetSize,
 		process:          jaegerProcess,
-	}
-
-	return c, nil
+	}, nil
 }
 
 // Run reads spans off the queue and appends them to the buffer. When the
