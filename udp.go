@@ -32,7 +32,7 @@ const (
 	// defaultQueueSize is the default size of the span queue.
 	defaultQueueSize = 1000
 
-	// defaultFlushInterval is the default interval to send data on ticker
+	// defaultFlushInterval is the default interval to send data on ticker.
 	defaultFlushInterval = 5 * time.Minute
 
 	// estimateSpanSize is the estimation size of a span we pre-allocate for pricise span size calculation.
@@ -51,7 +51,6 @@ type UDPCollector struct {
 	log              *zap.Logger
 	ch               chan *jaeger.Span
 	flushInterval    time.Duration
-	cancel           context.CancelFunc
 	process          *jaeger.Process // the information of which process is sending the spans
 	client           *agent.AgentClient
 	conn             *net.UDPConn
@@ -141,8 +140,8 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 // buffer fills up, it flushes. It also flushes on a jittered interval.
 func (c *UDPCollector) Run(ctx context.Context) {
 	c.log.Debug("started")
+	defer c.log.Debug("stopped")
 
-	ctx, c.cancel = context.WithCancel(ctx)
 	ticker := time.NewTicker(jitter(c.flushInterval))
 	for {
 		select {
@@ -174,13 +173,6 @@ func (c *UDPCollector) Run(ctx context.Context) {
 			return
 		}
 	}
-}
-
-// Stop stops the worker created by Run.
-func (c *UDPCollector) Stop() {
-	c.cancel()
-
-	c.log.Debug("stopped")
 }
 
 // Close shutdown the underlying udp connection.

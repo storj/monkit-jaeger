@@ -31,13 +31,14 @@ func withCollector(ctx context.Context, t *testing.T, agentAddr string,
 
 	var eg errgroup.Group
 
+	ctx, cancel := context.WithCancel(ctx)
 	eg.Go(func() error {
 		collector.Run(ctx)
 		return nil
 	})
 
 	f(collector)
-	collector.Stop()
+	cancel()
 	require.NoError(t, eg.Wait())
 
 	// Ensure the collector queue has been drained on shutdown
