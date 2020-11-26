@@ -143,6 +143,8 @@ func (c *UDPCollector) Run(ctx context.Context) {
 	defer c.log.Debug("stopped")
 
 	ticker := time.NewTicker(jitter(c.flushInterval))
+	defer ticker.Stop()
+
 	for {
 		select {
 		case s := <-c.ch:
@@ -155,10 +157,13 @@ func (c *UDPCollector) Run(ctx context.Context) {
 			if err := c.Send(ctx); err != nil {
 				c.log.Error("failed to send on ticker", zap.Error(err))
 			}
-			ticker.Stop()
-			ticker = time.NewTicker(jitter(c.flushInterval))
+			ticker.Reset(jitter(c.flushInterval))
+			// clear ticker
+			select {
+			case <-ticker.C:
+			default:
+			}
 		case <-ctx.Done():
-			ticker.Stop()
 			// drain the channel on shutdown
 			left := len(c.ch)
 			ctxWithoutCancel := context2.WithoutCancellation(ctx)
