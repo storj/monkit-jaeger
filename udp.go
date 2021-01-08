@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	// max size of UDP packet we can send to jaeger-agent
-	// for more detail, see https://github.com/jaegertracing/jaeger-client-go/blob/1db6ae67694d13f4ecb454cd65b40034a687118a/utils/udp_client.go#L30
+	// max size of UDP packet we can send to jaeger-agent.
+	// see: https://github.com/jaegertracing/jaeger-client-go/blob/1db6ae67694d13f4ecb454cd65b40034a687118a/utils/udp_client.go#L30
 	maxPacketSize = 65000
 
 	// jaeger-client-go has calculation for how this number is set.
