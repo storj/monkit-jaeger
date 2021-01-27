@@ -27,7 +27,7 @@ const (
 
 	// jaeger-client-go has calculation for how this number is set.
 	// see: https://github.com/jaegertracing/jaeger-client-go/blob/e75ea75c424f3127125aad39056a2718a3b5aa1d/transport_udp.go#L33
-	emitBatchOverhead = 70
+	emitBatchOverhead = 30
 
 	// defaultQueueSize is the default size of the span queue.
 	defaultQueueSize = 1000
@@ -192,7 +192,7 @@ func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err erro
 
 	if spanSize > c.maxSpanBytes {
 		mon.Counter("jaeger-span-too-large").Inc(1)
-		return errs.New("span is too large")
+		return errs.New("span is too large. Expected no bigger than %d, got %d", c.maxSpanBytes, spanSize)
 	}
 
 	c.mu.Lock()
