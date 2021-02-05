@@ -148,7 +148,7 @@ func (c *UDPCollector) Run(ctx context.Context) {
 		case s := <-c.ch:
 			err := c.handleSpan(ctx, s)
 			if err != nil {
-				mon.Counter("jaeger-span-handling-failure").Inc(1)
+				mon.Counter("jaeger_span_handling_failure").Inc(1)
 				c.log.Error("failed to handle span", zap.Error(err))
 			}
 		case <-ticker.C:
@@ -169,7 +169,7 @@ func (c *UDPCollector) Run(ctx context.Context) {
 				s := <-c.ch
 				err := c.handleSpan(ctxWithoutCancel, s)
 				if err != nil {
-					mon.Counter("jaeger-span-handling-failure").Inc(1)
+					mon.Counter("jaeger_span_handling_failure").Inc(1)
 					c.log.Error("failed to handle span", zap.Error(err))
 				}
 			}
@@ -191,7 +191,7 @@ func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err erro
 	}
 
 	if spanSize > c.maxSpanBytes {
-		mon.Counter("jaeger-span-too-large").Inc(1)
+		mon.Counter("jaeger_span_too_large").Inc(1)
 		return errs.New("span is too large. Expected no bigger than %d, got %d", c.maxSpanBytes, spanSize)
 	}
 
@@ -240,7 +240,7 @@ func (c *UDPCollector) Send(ctx context.Context) (err error) {
 	// it probably is ok if we lose one batch of trace since these are just metrics data
 	defer c.resetSpanBuffer()
 	if c.thriftBuffer.Len() > c.maxPacketSize {
-		mon.Counter("jaeger-exceeds-packet-size").Inc(1)
+		mon.Counter("jaeger_exceeds_packet_size").Inc(1)
 		return fmt.Errorf("data does not fit within one UDP packet; size %d, max %d, spans %d",
 			c.thriftBuffer.Len(), c.maxPacketSize, len(batch.Spans))
 	}
@@ -259,7 +259,7 @@ func (c *UDPCollector) Collect(span *jaeger.Span) {
 	select {
 	case c.ch <- span:
 	default:
-		mon.Counter("jaeger-buffer-full").Inc(1)
+		mon.Counter("jaeger_buffer_full").Inc(1)
 	}
 }
 
