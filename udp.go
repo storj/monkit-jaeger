@@ -94,7 +94,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 	for _, tag := range tags {
 		j, err := tag.BuildJaegerThrift()
 		if err != nil {
-			log.Info("failed to convert to jaeger tags", zap.Error(err))
+			log.Debug("failed to convert to jaeger tags", zap.Error(err))
 			continue
 		}
 		jaegerTags = append(jaegerTags, j)
@@ -149,11 +149,11 @@ func (c *UDPCollector) Run(ctx context.Context) {
 			err := c.handleSpan(ctx, s)
 			if err != nil {
 				mon.Counter("jaeger_span_handling_failure").Inc(1)
-				c.log.Error("failed to handle span", zap.Error(err))
+				c.log.Debug("failed to handle span", zap.Error(err))
 			}
 		case <-ticker.C:
 			if err := c.Send(ctx); err != nil {
-				c.log.Error("failed to send on ticker", zap.Error(err))
+				c.log.Debug("failed to send on ticker", zap.Error(err))
 			}
 			ticker.Reset(jitter(c.flushInterval))
 			// clear ticker
@@ -170,7 +170,7 @@ func (c *UDPCollector) Run(ctx context.Context) {
 				err := c.handleSpan(ctxWithoutCancel, s)
 				if err != nil {
 					mon.Counter("jaeger_span_handling_failure").Inc(1)
-					c.log.Error("failed to handle span", zap.Error(err))
+					c.log.Debug("failed to handle span", zap.Error(err))
 				}
 			}
 			return
