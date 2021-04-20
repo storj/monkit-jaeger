@@ -4,12 +4,17 @@
 package jaeger
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"log"
+	"io"
+	"net"
 	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
+	"github.com/zeebo/errs"
 
+	"storj.io/common/rpc/rpcstatus"
 	"storj.io/common/rpc/rpctracing"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
@@ -62,7 +67,7 @@ func getParentID(s *monkit.Span) *int64 {
 	return nil
 }
 
-func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
+func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 	finish time.Time) {
 	startTime := s.Start().UnixNano() / 1000
 	duration := finish.Sub(s.Start())
@@ -83,31 +88,22 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 		js.ParentSpanId = *parentID
 	}
 
-	tags := make([]*jaeger.Tag, 0, len(s.Annotations())+len(s.Args()))
+	tags := make([]Tag, 0, len(s.Annotations())+len(s.Args()))
+
 	for _, annotation := range s.Annotations() {
 		annotation := annotation
-		tag := Tag{
+		tags = append(tags, Tag{
 			Key:   annotation.Name,
 			Value: annotation.Value,
-		}
-		jaegerTag, err := tag.BuildJaegerThrift()
-		if err != nil {
-			log.Printf("failed to convert annotation to jaeger format: %v", err)
-		}
-		tags = append(tags, jaegerTag)
+		})
 	}
 
 	for idx, arg := range s.Args() {
 		arg := arg
-		tag := Tag{
+		tags = append(tags, Tag{
 			Key:   fmt.Sprintf("arg_%d", idx),
 			Value: arg,
-		}
-		jaegerTag, err := tag.BuildJaegerThrift()
-		if err != nil {
-			log.Printf("failed to convert args to jaeger format: %v", err)
-		}
-		tags = append(tags, jaegerTag)
+		})
 	}
 
 	// only attach trace metadata to the root span
@@ -123,20 +119,90 @@ func (opts Options) observeSpan(s *monkit.Span, err error, panicked bool,
 				key == rpctracing.TraceID {
 				continue
 			}
-			tag := Tag{
+			tags = append(tags, Tag{
 				Key:   key,
 				Value: v,
-			}
-
-			jaegerTag, err := tag.BuildJaegerThrift()
-			if err != nil {
-				log.Printf("failed to convert tag to jaeger format: %v", err)
-			}
-			tags = append(tags, jaegerTag)
+			})
 		}
 	}
 
-	js.Tags = tags
+	// in order to make sure we don't send error messages that contain private
+	// user information to our jaeger instance, we only send errors that we know
+	// is privacy clear.
+	errMsg := filterErr(spanErr, panicked)
+	if errMsg != nil {
+		tags = append(tags, NewErrorTag())
+
+		js.Logs = newJaegerLogs(finish, "error", errMsg.Error())
+	}
+	js.Tags = NewJaegerTags(tags)
 
 	opts.collector.Collect(js)
+}
+
+func newJaegerLogs(t time.Time, key, msg string) []*jaeger.Log {
+	// converts Go time.Time to a long representing time since epoch in microseconds,
+	// which is used expected in the Jaeger spans encoded as Thrift.
+	timestamp := t.UnixNano() / 1000
+
+	return []*jaeger.Log{
+		{
+			Timestamp: timestamp,
+			Fields: NewJaegerTags([]Tag{
+				{
+					Key:   key,
+					Value: msg,
+				},
+			}),
+		},
+	}
+}
+
+// filterErr returns an error that only contains known error messages.
+// the known errors are:
+// 1. rpc status code, and include it if it exists.
+// 2. check for io.EOF
+// 3. check for context.Canceled
+// 4. check for panicked
+// 5. check for net.Error.
+func filterErr(spanErr error, panicked bool) error {
+	var filteredErr error
+	if panicked {
+		filteredErr = errs.Combine(filteredErr, errors.New("panicked"))
+	}
+
+	if spanErr == nil {
+		return filteredErr
+	}
+
+	if code := rpcstatus.Code(spanErr); code != rpcstatus.Unknown {
+		filteredErr = errs.Combine(filteredErr, rpcstatus.Error(code, ""))
+	}
+
+	if errors.Is(spanErr, io.EOF) {
+		filteredErr = errs.Combine(filteredErr, io.EOF)
+	}
+
+	if errors.Is(spanErr, context.Canceled) {
+		filteredErr = errs.Combine(filteredErr, context.Canceled)
+	}
+
+	var netErr net.Error
+	if errors.As(spanErr, &netErr) {
+		var err error
+		if netErr.Timeout() {
+			err = errs.Combine(err, errors.New("encountered a network timeout issue"))
+		}
+		if netErr.Temporary() {
+			err = errs.Combine(err, errors.New("encountered a temporary network issue"))
+		}
+
+		if err == nil {
+			err = errors.New("encountered an unknown network issue")
+		}
+
+		filteredErr = errs.Combine(filteredErr, err)
+	}
+
+	return filteredErr
 }

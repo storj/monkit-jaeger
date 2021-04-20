@@ -42,3 +42,27 @@ func (t *Tag) BuildJaegerThrift() (*jaeger.Tag, error) {
 
 	return jaegerTag, nil
 }
+
+// NewJaegerTags converts Tag into jaeger format.
+func NewJaegerTags(tags []Tag) []*jaeger.Tag {
+	jaegerTags := make([]*jaeger.Tag, 0, len(tags))
+
+	for _, tag := range tags {
+		jaegerTag, err := tag.BuildJaegerThrift()
+		if err != nil {
+			mon.Event("failed_to_convert_tag_to_jaeger_format")
+			continue
+		}
+		jaegerTags = append(jaegerTags, jaegerTag)
+	}
+
+	return jaegerTags
+}
+
+// NewErrorTag creates a new jaeger error tag.
+func NewErrorTag() Tag {
+	return Tag{
+		Key:   "error",
+		Value: true,
+	}
+}

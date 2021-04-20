@@ -37,7 +37,7 @@ func TestRegisterJaeger(t *testing.T) {
 			e: expected{
 				operationName: "test-register",
 				hasParentID:   false,
-				tags:          nil,
+				tags:          NewJaegerTags(nil),
 			},
 			f: func(r *monkit.Registry, e expected) {
 				newTrace(r.Package(), e.operationName)
@@ -47,7 +47,7 @@ func TestRegisterJaeger(t *testing.T) {
 			e: expected{
 				operationName: "test-register-parent",
 				hasParentID:   true,
-				tags:          nil,
+				tags:          NewJaegerTags(nil),
 			},
 			f: func(r *monkit.Registry, e expected) {
 				newTraceWithParent(ctx, r.Package(), e.operationName)
@@ -57,13 +57,12 @@ func TestRegisterJaeger(t *testing.T) {
 			e: expected{
 				operationName: "test-register-args",
 				hasParentID:   false,
-				tags: []*jaeger.Tag{
+				tags: NewJaegerTags([]Tag{
 					{
 						Key:   "arg_0",
-						VType: jaeger.TagType_STRING,
-						VStr:  &argValue,
+						Value: argValue,
 					},
-				},
+				}),
 			},
 			f: func(r *monkit.Registry, e expected) {
 				newTraceWithArgs(r.Package(), e.operationName, tagValue)
@@ -73,13 +72,12 @@ func TestRegisterJaeger(t *testing.T) {
 			e: expected{
 				operationName: "test-register-trace-tags",
 				hasParentID:   false,
-				tags: []*jaeger.Tag{
+				tags: NewJaegerTags([]Tag{
 					{
 						Key:   tagKey,
-						VType: jaeger.TagType_STRING,
-						VStr:  &tagValue,
+						Value: tagValue,
 					},
-				},
+				}),
 			},
 			f: func(r *monkit.Registry, e expected) {
 				newTraceWithTags(r.Package(), e.operationName, map[string]string{
