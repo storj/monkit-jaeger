@@ -4,7 +4,7 @@ A plugin for http://github.com/spacemonkeygo/monkit that supports Jaeger.
 
 ## License
 
-Copyright (C) 2020 Storage Labs, Inc.
+Copyright (C) 2020 Storj Labs, Inc.
 Copyright (C) 2016 Space Monkey, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
