@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -29,9 +30,14 @@ func main() {
 	}
 }
 
+type subscription struct {
+	traceID int64
+	ch      chan *jaeger.Span
+}
+
 type server struct {
 	mu     sync.Mutex
-	active map[int64]chan *jaeger.Span
+	active map[*http.Request]*subscription
 
 	rbuf  []*jaeger.Span
 	rbufn int
@@ -48,7 +54,7 @@ func run(ctx context.Context, iface, laddr string) (err error) {
 	src := gopacket.NewPacketSource(handle, layers.LinkTypeEthernet)
 
 	s := &server{
-		active: make(map[int64]chan *jaeger.Span),
+		active: make(map[*http.Request]*subscription),
 		rbuf:   make([]*jaeger.Span, 1024*1024),
 	}
 
@@ -106,11 +112,14 @@ func (s *server) handlePacket(ctx context.Context, buf []byte) (err error) {
 			s.rbufn = 0
 		}
 
-		if ch := s.active[span.TraceIdLow]; ch != nil {
-			select {
-			case ch <- span:
-			default:
-				log.Printf("dropped trace for %d", span.TraceIdLow)
+		// this _should_ be relatively small compared to the other buffer
+		for _, sub := range s.active {
+			if sub.traceID == span.TraceIdLow {
+				select {
+				case sub.ch <- span:
+				default:
+					log.Printf("dropped trace for %d", span.TraceIdLow)
+				}
 			}
 		}
 	}
@@ -119,65 +128,100 @@ func (s *server) handlePacket(ctx context.Context, buf []byte) (err error) {
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	fl, _ := w.(interface{ Flush() })
+	accept := r.Header.Get("Accept")
+	switch {
+	case accept == "application/json":
+		s.Subscribe(w, r)
+	default:
+		s.Visualize(w, r)
+	}
+}
 
-	id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/"), 0, 64)
+func (s *server) Subscribe(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	// wait for additional traces to be returned
+	wait := true
+	if w := q.Get("wait"); w != "" {
+		wait, _ = strconv.ParseBool(w)
+	}
+
+	// which trace we're looking at
+	traceID, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/"), 0, 64)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("filtering traces for %d (flush:%v)", id, fl != nil)
-	defer log.Printf("done filtering traces for %d", id)
+	log.Printf("filtering traces for %d (wait=%s)", traceID, strconv.FormatBool(wait))
+	defer log.Printf("done filtering traces for %d (wait=%s)", traceID, strconv.FormatBool(wait))
 
-	ch := make(chan *jaeger.Span, 64)
+	// stream json spans back to the client
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.WriteHeader(http.StatusOK)
 
-	var mbuf thrift.TMemoryBuffer
-	mbuf.Buffer = new(bytes.Buffer)
-	proto := thrift.NewTCompactProtocol(&mbuf)
+	out := json.NewEncoder(w)
 
-	send := func(span *jaeger.Span) bool {
-		mbuf.Reset()
-
-		if err := span.Write(proto); err != nil {
-			log.Printf("error writing span: %v", err)
-			return true
-		}
-		if _, err := w.Write(mbuf.Bytes()); err != nil {
-			return false
-		}
-		if fl != nil {
-			fl.Flush()
-		}
-		return true
+	sub := &subscription{
+		traceID: traceID,
+		ch:      make(chan *jaeger.Span, 64),
 	}
-
-	s.mu.Lock()
-	for _, span := range s.rbuf {
-		if span == nil {
-			break
-		}
-		if span.TraceIdLow != id {
-			continue
-		}
-		if !send(span) {
-			s.mu.Unlock()
-			return
-		}
-	}
-
-	s.active[id] = ch
-	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
-		delete(s.active, id)
-		s.mu.Unlock()
+		defer s.mu.Unlock()
+
+		if s.active[r] != nil {
+			delete(s.active, r)
+		}
+
+		close(sub.ch)
 	}()
 
-	for s := range ch {
-		if !send(s) {
+	err = func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		s.active[r] = sub
+
+		for _, span := range s.rbuf {
+			if span != nil && span.TraceIdLow == traceID {
+				err = out.Encode(span)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}()
+
+	switch {
+	case err != nil:
+		// json encoding err, or output closed
+		// log err
+		return
+	case !wait:
+		// only return the buffer, don't wait for new data
+		return
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			// log r.Context().Err()
 			return
+		case span := <-sub.ch:
+			err = out.Encode(span)
+			if err != nil {
+				// log err
+				return
+			}
 		}
 	}
+}
+
+func (s *server) Visualize(w http.ResponseWriter, r *http.Request) {
+	// render UI
 }
