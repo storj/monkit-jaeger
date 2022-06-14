@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/gesture"
+	"gioui.org/io/event"
+	"gioui.org/io/key"
 	"gioui.org/op"
 )
 
@@ -41,6 +44,7 @@ type ViewportWidget struct {
 
 	drag   DragWidget
 	scroll VScrollWidget
+	click  gesture.Click
 }
 
 func NewViewportWidget(scale float32) ViewportWidget {
@@ -52,6 +56,9 @@ func NewViewportWidget(scale float32) ViewportWidget {
 }
 
 func (v *ViewportWidget) Add(ops *op.Ops) {
+	v.click.Add(ops)
+	key.InputOp{Tag: v, Keys: key.Set("(Shift)-W,A,S,D")}.Add(ops)
+
 	v.drag.Add(ops)
 	v.scroll.Add(ops)
 }
@@ -65,14 +72,25 @@ func (v *ViewportWidget) View(gtx C) (image.Rectangle, float32) {
 			})
 		if !animating {
 			v.anim = nil
+		}
+	}
+
+	if len(v.click.Events(gtx.Queue)) > 0 {
+		key.FocusOp{Tag: v}.Add(gtx.Ops)
+	}
+
+	if dd := v.HandleKeyboard(gtx.Queue); dd != (f32.Point{}) && !animating {
+		final := v.state
+		final.Offset(dd)
+		if dd.Y != 0 {
+			v.state = final
 		} else {
-			op.InvalidateOp{}.Add(gtx.Ops)
+			v.anim = newAnimationViewportState(gtx, v.state, final, 100*time.Millisecond)
 		}
 	}
 
 	v.state.Offset(v.drag.Drag(gtx.Queue))
 
-	// only process scrolling if not animating, but still consume events
 	if sd, pos := v.scroll.Scroll(gtx.Queue); sd != 0 && !animating {
 		abs := pos.Mul(-v.state.Scale).Add(v.state.Left)
 		abs.Y = v.state.Left.Y
@@ -84,8 +102,34 @@ func (v *ViewportWidget) View(gtx C) (image.Rectangle, float32) {
 	width := float32(gtx.Constraints.Max.X) * v.state.Scale
 	height := float32(gtx.Constraints.Max.Y) * v.state.Scale
 
+	if v.anim != nil {
+		op.InvalidateOp{}.Add(gtx.Ops)
+	}
+
 	return image.Rect(
 		int(v.state.Left.X), int(math.Ceil(float64(v.state.Left.Y))),
 		int(v.state.Left.X+width), int(math.Ceil(float64(v.state.Left.Y+height))),
 	), v.state.Scale
+}
+
+var viewportDirs = [256]f32.Point{
+	'w': f32.Pt(0, 20),
+	'W': f32.Pt(0, 20).Mul(4),
+	'a': f32.Pt(200, 0),
+	'A': f32.Pt(200, 0).Mul(4),
+	's': f32.Pt(0, -20),
+	'S': f32.Pt(0, -20).Mul(4),
+	'd': f32.Pt(-200, 0),
+	'D': f32.Pt(-200, 0).Mul(4),
+}
+
+func (v *ViewportWidget) HandleKeyboard(q event.Queue) (dd f32.Point) {
+	for _, e := range q.Events(v) {
+		e, ok := e.(key.EditEvent)
+		if !ok {
+			continue
+		}
+		dd = dd.Add(viewportDirs[e.Text[0]])
+	}
+	return dd
 }
