@@ -8,13 +8,12 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 )
 
-type VScrollWidget struct {
-	// gesture.Scroll
-}
+type VScrollWidget struct{}
 
 func (s *VScrollWidget) Add(ops *op.Ops) {
 	pointer.InputOp{
@@ -34,6 +33,10 @@ func (s *VScrollWidget) Scroll(q event.Queue) (d float32, pos f32.Point) {
 		}
 
 		d += e.Scroll.Y
+		if e.Modifiers.Contain(key.ModShift) {
+			d += 3 * e.Scroll.Y
+		}
+
 		pos = e.Position
 	}
 	return d, pos

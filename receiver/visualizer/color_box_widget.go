@@ -25,7 +25,7 @@ type ColorBoxWidget struct {
 }
 
 func (cb ColorBoxWidget) Layout(gtx layout.Context) layout.Dimensions {
-	label := material.Label(th, unit.Sp(8), cb.Text)
+	label := material.Label(th, unit.Sp(10), cb.Text)
 	label.Alignment = cb.Alignment
 	label.Color = black
 
@@ -34,7 +34,7 @@ func (cb ColorBoxWidget) Layout(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Max = cb.Size
 	}
 
-	dims := layout.UniformInset(unit.Dp(5)).Layout(gtx, label.Layout)
+	dims := layout.UniformInset(unit.Dp(3)).Layout(gtx, label.Layout)
 	ops := macro.Stop()
 
 	if cb.Size == (image.Point{}) {
@@ -43,7 +43,7 @@ func (cb ColorBoxWidget) Layout(gtx layout.Context) layout.Dimensions {
 
 	return widget.Border{
 		Color: black,
-		Width: unit.Dp(1),
+		Width: unit.Dp(2),
 	}.Layout(gtx, func(gtx C) D {
 		defer clip.Rect{Max: cb.Size}.Push(gtx.Ops).Pop()
 		paint.ColorOp{Color: cb.Background}.Add(gtx.Ops)

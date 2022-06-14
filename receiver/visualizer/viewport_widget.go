@@ -70,28 +70,15 @@ func (v *ViewportWidget) View(gtx C) (image.Rectangle, float32) {
 		}
 	}
 
-	dd := v.drag.Drag(gtx.Queue)
-	v.state.Offset(dd)
+	v.state.Offset(v.drag.Drag(gtx.Queue))
 
-	// only process scrolling if not animating
+	// only process scrolling if not animating, but still consume events
 	if sd, pos := v.scroll.Scroll(gtx.Queue); sd != 0 && !animating {
 		abs := pos.Mul(-v.state.Scale).Add(v.state.Left)
 		abs.Y = v.state.Left.Y
-
 		center := viewportState{Left: abs, Scale: 0}
-
-		t := 1.5
-		if sd < 0 {
-			t = 1 / t
-		}
-
-		final := lerpViewportState(center, v.state, t)
-
+		final := lerpViewportState(center, v.state, math.Pow(1.5, float64(sd)))
 		v.anim = newAnimationViewportState(gtx, v.state, final, 100*time.Millisecond)
-	}
-
-	if v.state.Left.Y > 0 {
-		v.state.Left.Y = 0
 	}
 
 	width := float32(gtx.Constraints.Max.X) * v.state.Scale

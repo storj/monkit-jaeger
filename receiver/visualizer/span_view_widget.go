@@ -105,7 +105,7 @@ func (s *SpanViewWidget) Layout(gtx C) D {
 
 			return widget.Border{
 				Color: black,
-				Width: unit.Dp(1),
+				Width: unit.Dp(2),
 			}.Layout(gtx, func(gtx C) D {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -129,7 +129,7 @@ func (s *SpanViewWidget) Layout(gtx C) D {
 						width := float32(si.Finish-si.Start) / scale
 						startx := float32(si.Start-s.spans[0].Start) / scale
 						endx := startx + width
-						starty := float32(sli.Row*height - 60)
+						starty := float32(sli.Row*(height-2) - 2*height + 5)
 						endy := starty + height
 						offset := image.Pt(int(startx), int(starty))
 

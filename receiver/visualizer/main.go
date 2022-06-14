@@ -6,14 +6,13 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"image/color"
 	"log"
 	"os"
+	"sync"
 
 	"gioui.org/app"
 	"gioui.org/font/gofont"
-	"gioui.org/io/profile"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -84,19 +83,22 @@ func run(w *app.Window) error {
 	// 	Height:      32,
 	// }
 
-	id := mv.trace.AddItem("12341234")
+	var bufMu sync.Mutex
+	var buffered []SpanInfo
+
 	if *static != "" {
 		infos, err := loadStatic(*static)
 		if err != nil {
 			return errs.Wrap(err)
 		}
-		for _, info := range infos {
-			mv.AddSpanInfo(id, info)
-		}
+		buffered = infos
 	} else {
 		go func() {
 			panic(Collect(context.Background(), *flagCollector, *flagTrace, func(sp *jaeger.Span) error {
-				mv.AddSpanInfo(id, SpanInfo{
+				bufMu.Lock()
+				defer bufMu.Unlock()
+
+				buffered = append(buffered, SpanInfo{
 					Summary: sp.OperationName,
 					Id:      sp.SpanId,
 					Parent:  sp.ParentSpanId,
@@ -118,11 +120,15 @@ func run(w *app.Window) error {
 
 		case system.FrameEvent:
 			gtx := layout.NewContext(&ops, e)
-			profile.Op{Tag: w}.Add(gtx.Ops)
-			mv.Layout(gtx)
-			for _, ev := range gtx.Queue.Events(w) {
-				fmt.Println(ev)
+
+			bufMu.Lock()
+			if buffered != nil {
+				mv.AddSpanInfos(gtx, buffered...)
+				buffered = nil
 			}
+			bufMu.Unlock()
+
+			mv.Layout(gtx)
 			e.Frame(gtx.Ops)
 		}
 	}
