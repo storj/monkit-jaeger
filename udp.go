@@ -23,7 +23,7 @@ import (
 const (
 	// max size of UDP packet we can send to jaeger-agent.
 	// see: https://github.com/jaegertracing/jaeger-client-go/blob/1db6ae67694d13f4ecb454cd65b40034a687118a/utils/udp_client.go#L30
-	maxPacketSize = 65000
+	maxPacketSize = 1000
 
 	// jaeger-client-go has calculation for how this number is set.
 	// see: https://github.com/jaegertracing/jaeger-client-go/blob/e75ea75c424f3127125aad39056a2718a3b5aa1d/transport_udp.go#L33
@@ -33,7 +33,7 @@ const (
 	defaultQueueSize = 1000
 
 	// defaultFlushInterval is the default interval to send data on ticker.
-	defaultFlushInterval = 5 * time.Minute
+	defaultFlushInterval = 15 * time.Second
 
 	// estimateSpanSize is the estimation size of a span we pre-allocate for pricise span size calculation.
 	estimateSpanSize = 600
@@ -196,16 +196,18 @@ func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err erro
 	}
 
 	c.mu.Lock()
-	currentSpanBytes := c.currentSpanBytes
-	c.mu.Unlock()
 
-	if currentSpanBytes+spanSize >= c.maxSpanBytes {
+	for {
+		if c.currentSpanBytes+spanSize < c.maxSpanBytes {
+			break
+		}
+		c.mu.Unlock()
 		if err := c.Send(ctx); err != nil {
 			return errs.Wrap(err)
 		}
+		c.mu.Lock()
 	}
 
-	c.mu.Lock()
 	c.currentSpanBytes += spanSize
 	c.spansToSend = append(c.spansToSend, s)
 	c.mu.Unlock()
