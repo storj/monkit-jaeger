@@ -128,6 +128,8 @@ func (s *server) handlePacket(ctx context.Context, buf []byte) (err error) {
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Access-Control-Allow-Origin", "*")
+
 	accept := r.Header.Get("Accept")
 	switch {
 	case accept == "application/json":
