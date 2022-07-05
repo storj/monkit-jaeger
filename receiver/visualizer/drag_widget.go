@@ -4,8 +4,6 @@
 package main
 
 import (
-	"fmt"
-
 	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -55,7 +53,6 @@ func (d *DragWidget) Drag(q event.Queue) f32.Point {
 			dx := e.Position.Sub(d.prev)
 			if e.Modifiers.Contain(key.ModShift) {
 				dx = dx.Mul(4)
-				fmt.Println("move", dx)
 			}
 			delta = delta.Add(dx)
 			d.prev = e.Position
