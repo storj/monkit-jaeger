@@ -19,7 +19,7 @@ func NewMainViewWidget() MainViewWidget {
 }
 
 func (mv *MainViewWidget) Layout(gtx C) D {
-	paint.ColorOp{Color: darkGray}.Add(gtx.Ops)
+	paint.ColorOp{Color: lightGray}.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
 	return mv.spans.Layout(gtx)
 }

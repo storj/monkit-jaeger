@@ -4,6 +4,8 @@
 package main
 
 import (
+	"fmt"
+
 	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -50,11 +52,12 @@ func (d *DragWidget) Drag(q event.Queue) f32.Point {
 			if !d.dragging || e.PointerID != d.pid {
 				continue
 			}
-			delta = delta.Add(e.Position.Sub(d.prev))
+			dx := e.Position.Sub(d.prev)
 			if e.Modifiers.Contain(key.ModShift) {
-				delta = delta.Add(e.Position.Sub(d.prev).Mul(3))
+				dx = dx.Mul(4)
+				fmt.Println("move", dx)
 			}
-
+			delta = delta.Add(dx)
 			d.prev = e.Position
 		case pointer.Release, pointer.Cancel:
 			d.pressed = false

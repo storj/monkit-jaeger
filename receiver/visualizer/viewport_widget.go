@@ -82,11 +82,11 @@ func (v *ViewportWidget) View(gtx C) (image.Rectangle, float32) {
 	if dd := v.HandleKeyboard(gtx.Queue); dd != (f32.Point{}) && !animating {
 		final := v.state
 		final.Offset(dd)
+		dur := 100 * time.Millisecond
 		if dd.Y != 0 {
-			v.state = final
-		} else {
-			v.anim = newAnimationViewportState(gtx, v.state, final, 100*time.Millisecond)
+			dur /= 5
 		}
+		v.anim = newAnimationViewportState(gtx, v.state, final, dur)
 	}
 
 	v.state.Offset(v.drag.Drag(gtx.Queue))

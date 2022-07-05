@@ -15,10 +15,10 @@ type spanLayoutInfo struct {
 	Row         int
 }
 
-func computeLayoutInformation(spans []SpanInfo) (map[int64]*spanLayoutInfo, int, int64) {
-	spanTree := computeSpanTree(spans)
-	for _, span := range spans {
-		includeSpanInLayoutInformation(spanTree, span)
+func computeLayoutInformation(spans []SpanInfo, fs []func(SpanInfo) bool) (map[int64]*spanLayoutInfo, int, int64) {
+	spanTree := computeSpanTree(spans, fs)
+	for _, si := range spans {
+		includeSpanInLayoutInformation(spanTree, spanTree[si.Id])
 	}
 
 	usedRows := 1
@@ -41,7 +41,16 @@ func computeLayoutInformation(spans []SpanInfo) (map[int64]*spanLayoutInfo, int,
 	return spanTree, usedRows + 1, max - min
 }
 
-func computeSpanTree(spans []SpanInfo) map[int64]*spanLayoutInfo {
+func spanInfoAllowed(si SpanInfo, fs []func(SpanInfo) bool) bool {
+	for _, f := range fs {
+		if !f(si) {
+			return false
+		}
+	}
+	return true
+}
+
+func computeSpanTree(spans []SpanInfo, fs []func(SpanInfo) bool) map[int64]*spanLayoutInfo {
 	out := make(map[int64]*spanLayoutInfo)
 	for _, span := range spans {
 		id := span.Id
@@ -67,39 +76,58 @@ func computeSpanTree(spans []SpanInfo) map[int64]*spanLayoutInfo {
 			}
 		}
 	}
+
+	for _, span := range spans {
+		if spanInfoAllowed(span, fs) {
+			continue
+		}
+
+		sli := out[span.Id]
+		delete(out, span.Id)
+
+		for _, cid := range sli.Children {
+			out[cid].Parent = sli.Parent
+		}
+
+		if psli := out[span.Parent]; psli != nil {
+			psli.Children = append(psli.Children, sli.Children...)
+			if sli.LargestTime > psli.LargestTime {
+				psli.LargestTime = sli.LargestTime
+			}
+		}
+	}
+
 	return out
 }
 
-func includeSpanInLayoutInformation(spanTree map[int64]*spanLayoutInfo, span SpanInfo) {
-	id := span.Id
-	si := spanTree[id]
-	if si.Layout {
+func includeSpanInLayoutInformation(spanTree map[int64]*spanLayoutInfo, sli *spanLayoutInfo) {
+	if sli == nil || sli.Layout {
 		return
 	}
-	si.Layout = true
+	sli.Layout = true
 
-	pid := span.Parent
+	pid := sli.Parent
 	if pid == 0 || spanTree[pid] == nil {
 		return
 	}
 
 	psi, ok := spanTree[pid]
 	if !ok {
-		includeSpanInLayoutInformation(spanTree, spanTree[pid].Span)
+		includeSpanInLayoutInformation(spanTree, spanTree[pid])
 		psi = spanTree[pid]
 	}
 
-	start := span.Start
+	start := sli.Span.Start
 	found := false
 	for i, children := range psi.Rows {
 		if len(children) == 0 || start > spanTree[children[len(children)-1]].LargestTime {
-			psi.Rows[i] = append(psi.Rows[i], id)
+			psi.Rows[i] = append(psi.Rows[i], sli.Span.Id)
 			found = true
 			break
 		}
 	}
 	if !found {
-		psi.Rows = append(psi.Rows, []int64{id})
+		psi.Rows = append(psi.Rows, []int64{sli.Span.Id})
 	}
 }
 
