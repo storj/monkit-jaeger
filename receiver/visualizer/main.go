@@ -22,14 +22,6 @@ import (
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
-type float interface {
-	float32 | float64
-}
-
-// func lerp[F1, F2 float](s, e F1, t F2) F1 {
-// 	return s*F1(1-t) + e*F1(t)
-// }
-
 func lerpF32(s, e float32, t float64) float32 {
 	return s*float32(1-t) + e*float32(t)
 }
@@ -75,13 +67,6 @@ func run(w *app.Window) error {
 	var ops op.Ops
 
 	mv := NewMainViewWidget()
-
-	// mv.span = SpanWidget{
-	// 	SpanText:    "some span text",
-	// 	TooltipText: "some tooltip text\nthat\nis multiple\nlines",
-	// 	Color:       spanOk,
-	// 	Height:      32,
-	// }
 
 	var bufMu sync.Mutex
 	var buffered []SpanInfo

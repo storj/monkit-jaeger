@@ -7,7 +7,6 @@ require (
 	github.com/apache/thrift v0.12.0
 	github.com/google/gopacket v1.1.19
 	github.com/zeebo/errs v1.3.0
-	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e
 	storj.io/monkit-jaeger v0.0.0-20220614151325-3ae4cae696b8
 )
 

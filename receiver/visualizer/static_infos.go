@@ -16,10 +16,19 @@ var re = regexp.MustCompile(
 	`(?ms)<g id="id-([0-9]*)" class="func parent-([0-9]*)" onmouseover="mouseover\('[^']*', '[^']*', '([^']*) Duration:([^ ]*) Started:([^ ]*)'\);" onmouseout="[^"]*" onclick="[^"]*">[^<]*<clipPath[^>]*>[^<]*<rect[^>]*>[^<]*</clipPath[^>]*>[^<]*<rect[^>]* fill="([^"]*)"/>`,
 )
 
+var staticData []byte
+
 func loadStatic(file string) ([]SpanInfo, error) {
-	data, err := ioutil.ReadFile(file)
-	if err != nil {
-		return nil, err
+	var data []byte
+	var err error
+
+	if staticData == nil {
+		data, err = ioutil.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		data = staticData
 	}
 
 	colors := map[string]SpanStatus{
@@ -50,8 +59,6 @@ func loadStatic(file string) ([]SpanInfo, error) {
 			panic(err)
 		}
 		color := matches[6]
-
-		// fmt.Println(id, parent, text, dur, start, colors[color])
 
 		infos = append(infos, SpanInfo{
 			Summary: text,
