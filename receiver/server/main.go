@@ -39,7 +39,8 @@ type server struct {
 	mu     sync.Mutex
 	active map[*http.Request]*subscription
 
-	rbuf  []*jaeger.Span
+	rbufs map[int64][]*jaeger.Span
+	rbuft []int64
 	rbufn int
 }
 
@@ -55,7 +56,7 @@ func run(ctx context.Context, iface, laddr string) (err error) {
 
 	s := &server{
 		active: make(map[*http.Request]*subscription),
-		rbuf:   make([]*jaeger.Span, 1024*1024),
+		rbufs:  make(map[int64][]*jaeger.Span),
 	}
 
 	errch := make(chan error, 2)
@@ -106,10 +107,18 @@ func (s *server) handlePacket(ctx context.Context, buf []byte) (err error) {
 	defer s.mu.Unlock()
 
 	for _, span := range batch.Batch.GetSpans() {
-		s.rbuf[s.rbufn] = span
+		rbuf, ok := s.rbufs[span.TraceIdLow]
+		if !ok {
+			s.rbuft = append(s.rbuft, span.TraceIdLow)
+		}
+		s.rbufs[span.TraceIdLow] = append(rbuf, span)
 		s.rbufn++
-		if s.rbufn >= len(s.rbuf) {
-			s.rbufn = 0
+
+		if s.rbufn >= 1024*1024 {
+			evict := s.rbuft[0]
+			s.rbuft = s.rbuft[1:]
+			s.rbufn -= len(s.rbufs[evict])
+			delete(s.rbufs, evict)
 		}
 
 		// this _should_ be relatively small compared to the other buffer
@@ -140,6 +149,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) Subscribe(w http.ResponseWriter, r *http.Request) {
+	fl, _ := w.(interface{ Flush() })
+
 	q := r.URL.Query()
 
 	// wait for additional traces to be returned
@@ -187,13 +198,15 @@ func (s *server) Subscribe(w http.ResponseWriter, r *http.Request) {
 
 		s.active[r] = sub
 
-		for _, span := range s.rbuf {
-			if span != nil && span.TraceIdLow == traceID {
-				err = out.Encode(span)
-				if err != nil {
-					return err
-				}
+		for _, span := range s.rbufs[traceID] {
+			err = out.Encode(span)
+			if err != nil {
+				return err
 			}
+		}
+
+		if fl != nil {
+			fl.Flush()
 		}
 
 		return nil
@@ -219,6 +232,9 @@ func (s *server) Subscribe(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				// log err
 				return
+			}
+			if fl != nil {
+				fl.Flush()
 			}
 		}
 	}
