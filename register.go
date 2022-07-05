@@ -6,7 +6,6 @@ package jaeger
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -88,21 +87,13 @@ func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 		js.ParentSpanId = *parentID
 	}
 
-	tags := make([]Tag, 0, len(s.Annotations())+len(s.Args()))
+	tags := make([]Tag, 0, len(s.Annotations()))
 
 	for _, annotation := range s.Annotations() {
 		annotation := annotation
 		tags = append(tags, Tag{
 			Key:   annotation.Name,
 			Value: annotation.Value,
-		})
-	}
-
-	for idx, arg := range s.Args() {
-		arg := arg
-		tags = append(tags, Tag{
-			Key:   fmt.Sprintf("arg_%d", idx),
-			Value: arg,
 		})
 	}
 

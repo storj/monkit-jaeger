@@ -5,7 +5,6 @@ package jaeger
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -28,7 +27,7 @@ func TestRegisterJaeger(t *testing.T) {
 
 	tagKey := "test-key"
 	tagValue := "test"
-	argValue := fmt.Sprintf("%#v", tagValue) // format from monkit
+
 	testcases := []struct {
 		e expected
 		f func(*monkit.Registry, expected)
@@ -57,12 +56,7 @@ func TestRegisterJaeger(t *testing.T) {
 			e: expected{
 				operationName: "test-register-args",
 				hasParentID:   false,
-				tags: NewJaegerTags([]Tag{
-					{
-						Key:   "arg_0",
-						Value: argValue,
-					},
-				}),
+				tags:          NewJaegerTags([]Tag{}),
 			},
 			f: func(r *monkit.Registry, e expected) {
 				newTraceWithArgs(r.Package(), e.operationName, tagValue)
