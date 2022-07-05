@@ -104,6 +104,24 @@ func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 		}
 	}
 
+	if panicked || spanErr != nil {
+		var status string
+
+		switch {
+		case panicked:
+			status = "panicked"
+		case errors.Is(spanErr, context.Canceled):
+			status = "canceled"
+		case spanErr != nil:
+			status = "errored"
+		}
+
+		tags = append(tags, Tag{
+			Key:   "status",
+			Value: status,
+		})
+	}
+
 	// in order to make sure we don't send error messages that contain private
 	// user information to our jaeger instance, we only send errors that we know
 	// is privacy clear.
