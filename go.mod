@@ -7,6 +7,7 @@ require (
 	github.com/spacemonkeygo/monkit/v3 v3.0.18
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0
+	github.com/zeebo/mwc v0.0.4
 	go.uber.org/zap v1.14.1
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c

@@ -8,10 +8,13 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
+	"github.com/spacemonkeygo/monkit/v3/present"
 	"github.com/zeebo/errs"
+	"github.com/zeebo/mwc"
 
 	"storj.io/common/rpc/rpcstatus"
 	"storj.io/common/rpc/rpctracing"
@@ -25,6 +28,8 @@ type Options struct {
 	collector TraceCollector
 }
 
+type observedKey struct{}
+
 // RegisterJaeger configures the given Registry reg to send the Spans from some
 // portion of all new Traces to the given TraceCollector.
 // it returns the unregister function.
@@ -32,16 +37,35 @@ func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 	opts Options) func() {
 	opts.collector = collector
 
-	return reg.ObserveTraces(func(t *monkit.Trace) {
+	var traceMu sync.Mutex
+
+	var cb func(*monkit.Trace)
+	cb = func(t *monkit.Trace) {
+		if _, exists := t.Get(present.SampledCBKey).(func(*monkit.Trace)); !exists {
+			t.Set(present.SampledCBKey, cb)
+		}
+
 		sampled, exists := t.Get(rpctracing.Sampled).(bool)
 		if !exists {
-			sampled = rng.Float64() < opts.Fraction
+			sampled = mwc.Rand().Float64() < opts.Fraction
 			t.Set(rpctracing.Sampled, sampled)
 		}
-		if sampled {
-			t.ObserveSpans(spanFinishObserverFunc(opts.observeSpan))
+
+		if !sampled {
+			return
 		}
-	})
+
+		traceMu.Lock()
+		defer traceMu.Unlock()
+
+		if t.Get(observedKey{}) != nil {
+			return
+		}
+		t.Set(observedKey{}, struct{}{})
+
+		t.ObserveSpans(spanFinishObserverFunc(opts.observeSpan))
+	}
+	return reg.ObserveTraces(cb)
 }
 
 type spanFinishObserverFunc func(s *monkit.Span, err error, panicked bool,
