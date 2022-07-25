@@ -196,21 +196,16 @@ func (c *UDPCollector) handleSpan(ctx context.Context, s *jaeger.Span) (err erro
 	}
 
 	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	for {
-		if c.currentSpanBytes+spanSize < c.maxSpanBytes {
-			break
-		}
-		c.mu.Unlock()
-		if err := c.Send(ctx); err != nil {
+	if c.currentSpanBytes+spanSize > c.maxSpanBytes {
+		if err := c.send(ctx); err != nil {
 			return errs.Wrap(err)
 		}
-		c.mu.Lock()
 	}
 
 	c.currentSpanBytes += spanSize
 	c.spansToSend = append(c.spansToSend, s)
-	c.mu.Unlock()
 
 	return nil
 }
@@ -220,6 +215,10 @@ func (c *UDPCollector) Send(ctx context.Context) (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	return c.send(ctx)
+}
+
+func (c *UDPCollector) send(ctx context.Context) (err error) {
 	if len(c.spansToSend) == 0 {
 		return nil
 	}
