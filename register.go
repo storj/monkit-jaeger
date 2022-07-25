@@ -53,19 +53,6 @@ func (f spanFinishObserverFunc) Finish(s *monkit.Span, err error,
 	f(s, err, panicked, finish)
 }
 
-func getParentID(s *monkit.Span) *int64 {
-	parent := s.Parent()
-	if parent != nil {
-		parentID := parent.Id()
-		return &parentID
-	}
-	if remoteParentID, ok := s.Trace().Get(rpctracing.ParentID).(int64); ok {
-		return &remoteParentID
-	}
-
-	return nil
-}
-
 func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 	finish time.Time) {
 	startTime := s.Start().UnixNano() / 1000
@@ -82,9 +69,9 @@ func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 		Duration: duration.Nanoseconds() / int64(time.Microsecond),
 	}
 
-	parentID := getParentID(s)
-	if parentID != nil {
-		js.ParentSpanId = *parentID
+	pid, hasParent := s.ParentId()
+	if hasParent {
+		js.ParentSpanId = pid
 	}
 
 	tags := make([]Tag, 0, len(s.Annotations()))
@@ -98,7 +85,7 @@ func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 	}
 
 	// only attach trace metadata to the root span
-	if s.Parent() == nil {
+	if !hasParent {
 		for k, v := range s.Trace().GetAll() {
 			key, ok := k.(string)
 			if !ok {
