@@ -60,6 +60,7 @@ type UDPCollector struct {
 	thriftProtocol   thrift.TProtocol
 	spanSizeProtocol thrift.TProtocol
 	batchSeqNo       int64
+	wg               sync.WaitGroup
 }
 
 // NewUDPCollector creates a UDPCollector that sends packets to jaeger agent.
@@ -137,6 +138,8 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 // Run reads spans off the queue and appends them to the buffer. When the
 // buffer fills up, it flushes. It also flushes on a jittered interval.
 func (c *UDPCollector) Run(ctx context.Context) {
+	c.wg.Add(1)
+	defer c.wg.Add(-1)
 	c.log.Debug("started")
 	defer c.log.Debug("stopped")
 
@@ -173,13 +176,17 @@ func (c *UDPCollector) Run(ctx context.Context) {
 					c.log.Debug("failed to handle span", zap.Error(err))
 				}
 			}
+			if err := c.Send(ctx); err != nil {
+				c.log.Debug("failed to send on close", zap.Error(err))
+			}
 			return
 		}
 	}
 }
 
-// Close shutdown the underlying udp connection.
+// Close gracefully sthudown the underlying udp connection, after remaining messages are sent out.
 func (c *UDPCollector) Close() error {
+	c.wg.Wait()
 	return c.conn.Close()
 }
 
