@@ -53,13 +53,14 @@ type UDPCollector struct {
 	flushInterval    time.Duration
 	process          *jaeger.Process // the information of which process is sending the spans
 	client           *agent.AgentClient
-	conn             *net.UDPConn
+	conn             net.Conn
 	maxSpanBytes     int                   // the max bytes spans can take up to make sure we don't exceed maxPacketSize
 	maxPacketSize    int                   // the max number of bytes this instance of UDPCollector allows for a single UDP packet
 	spanSizeBuffer   *thrift.TMemoryBuffer // spanSizeBuffer helps us calculate the size of the span when thrift-encoded
 	thriftProtocol   thrift.TProtocol
 	spanSizeProtocol thrift.TProtocol
 	batchSeqNo       int64
+	agentAddr        string
 }
 
 // NewUDPCollector creates a UDPCollector that sends packets to jaeger agent.
@@ -85,11 +86,6 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 	spanSizeProtocol := protocolFactory.GetProtocol(spanSizeBuffer)
 	client := agent.NewAgentClientFactory(thriftBuffer, protocolFactory)
 
-	destAddr, err := net.ResolveUDPAddr("udp", agentAddr)
-	if err != nil {
-		return nil, err
-	}
-
 	jaegerTags := make([]*jaeger.Tag, 0, len(tags))
 	for _, tag := range tags {
 		j, err := tag.BuildJaegerThrift()
@@ -100,14 +96,6 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 		jaegerTags = append(jaegerTags, j)
 	}
 
-	connUDP, err := net.DialUDP(destAddr.Network(), nil, destAddr)
-	if err != nil {
-		return nil, err
-	}
-	if err := connUDP.SetWriteBuffer(packetSize); err != nil {
-		return nil, errs.Combine(err, connUDP.Close())
-	}
-
 	jaegerProcess := &jaeger.Process{
 		ServiceName: serviceName,
 		Tags:        jaegerTags,
@@ -115,7 +103,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 
 	processByteSize, err := calculateThriftSize(jaegerProcess, spanSizeBuffer, spanSizeProtocol)
 	if err != nil {
-		return nil, errs.Combine(err, connUDP.Close())
+		return nil, errs.Wrap(err)
 	}
 
 	return &UDPCollector{
@@ -123,7 +111,6 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 		ch:               make(chan *jaeger.Span, queueSize),
 		client:           client,
 		flushInterval:    flushInterval,
-		conn:             connUDP,
 		maxSpanBytes:     packetSize - emitBatchOverhead - processByteSize,
 		spanSizeBuffer:   spanSizeBuffer,
 		thriftBuffer:     thriftBuffer,
@@ -131,6 +118,7 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 		spanSizeProtocol: spanSizeProtocol,
 		maxPacketSize:    packetSize,
 		process:          jaegerProcess,
+		agentAddr:        agentAddr,
 	}, nil
 }
 
@@ -139,6 +127,31 @@ func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags
 func (c *UDPCollector) Run(ctx context.Context) {
 	c.log.Debug("started")
 	defer c.log.Debug("stopped")
+	var err error
+
+	dialer := net.Dialer{}
+	c.conn, err = dialer.DialContext(ctx, "udp", c.agentAddr)
+	if err != nil {
+		c.log.Debug("failed open  UDP connection to Jaeger", zap.Error(err))
+		return
+	}
+	defer func() {
+		err := c.conn.Close()
+		if err != nil {
+			c.log.Debug("failed to close Jaeger UDP connection", zap.Error(err))
+		}
+	}()
+
+	udpConn, ok := c.conn.(*net.UDPConn)
+	if !ok {
+		c.log.Debug("Connection type mismatch", zap.Error(err))
+		return
+	}
+
+	if err := udpConn.SetWriteBuffer(c.maxPacketSize); err != nil {
+		c.log.Debug("failed to set max packet size on Jaeger UDP connection", zap.Error(err), zap.Int("maxPacketSize", c.maxPacketSize))
+		return
+	}
 
 	ticker := time.NewTicker(jitter(c.flushInterval))
 	defer ticker.Stop()
@@ -173,14 +186,18 @@ func (c *UDPCollector) Run(ctx context.Context) {
 					c.log.Debug("failed to handle span", zap.Error(err))
 				}
 			}
+			if err := c.send(ctxWithoutCancel); err != nil {
+				c.log.Debug("failed to send on close", zap.Error(err))
+			}
 			return
 		}
 	}
 }
 
-// Close shutdown the underlying udp connection.
+// Close gracefully shutdown the underlying udp connection, after remaining messages are sent out.
+// Deprecated: cancelling the context of run will close the connection.
 func (c *UDPCollector) Close() error {
-	return c.conn.Close()
+	return nil
 }
 
 // handleSpan adds a new span into the buffer.
