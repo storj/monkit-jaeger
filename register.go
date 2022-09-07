@@ -26,6 +26,8 @@ type Options struct {
 	Fraction float64 // The Fraction of traces to observe.
 
 	collector TraceCollector
+
+	Excluded func(*monkit.Span) bool
 }
 
 type observedKey struct{}
@@ -79,6 +81,11 @@ func (f spanFinishObserverFunc) Finish(s *monkit.Span, err error,
 
 func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 	finish time.Time) {
+
+	if opts.Excluded != nil && opts.Excluded(s) {
+		return
+	}
+
 	startTime := s.Start().UnixNano() / 1000
 	duration := finish.Sub(s.Start())
 
