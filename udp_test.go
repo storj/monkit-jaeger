@@ -18,7 +18,7 @@ import (
 )
 
 func withCollector(ctx context.Context, t *testing.T, agentAddr string,
-	packetSize int, interval time.Duration, f func(*UDPCollector)) {
+	packetSize int, interval time.Duration, f func(*ThriftCollector)) {
 
 	// if the interval is 0 (default), make it incredibly so long it's
 	// impossible for it to trigger during the test
@@ -26,7 +26,7 @@ func withCollector(ctx context.Context, t *testing.T, agentAddr string,
 		interval = 24 * time.Hour
 	}
 
-	collector, err := NewUDPCollector(zaptest.NewLogger(t), agentAddr, "test", nil, packetSize, 0, interval)
+	collector, err := NewThriftCollector(zaptest.NewLogger(t), agentAddr, "test", nil, packetSize, 0, interval)
 	require.NoError(t, err)
 
 	var eg errgroup.Group
@@ -49,7 +49,7 @@ func withCollector(ctx context.Context, t *testing.T, agentAddr string,
 func TestSendIsTriggeredByInterval(t *testing.T) {
 	ctx := testcontext.New(t)
 	withAgent(t, func(mock *MockAgent) {
-		withCollector(ctx, t, mock.Addr(), 99999999, time.Nanosecond, func(collector *UDPCollector) {
+		withCollector(ctx, t, mock.Addr(), 99999999, time.Nanosecond, func(collector *ThriftCollector) {
 
 			// let's fill it with a one span
 			collector.Collect(&jaeger.Span{
@@ -69,7 +69,7 @@ func TestSendIsTriggeredByInterval(t *testing.T) {
 func TestSendIsTriggeredByManySpans(t *testing.T) {
 	ctx := testcontext.New(t)
 	withAgent(t, func(mock *MockAgent) {
-		withCollector(ctx, t, mock.Addr(), 200, 0, func(collector *UDPCollector) {
+		withCollector(ctx, t, mock.Addr(), 200, 0, func(collector *ThriftCollector) {
 
 			// let's fill it with a number of spans
 			for i := 0; i < 100; i++ {
@@ -91,7 +91,7 @@ func TestSendIsTriggeredByManySpans(t *testing.T) {
 func TestUDPCollector(t *testing.T) {
 	ctx := testcontext.New(t)
 	withAgent(t, func(mock *MockAgent) {
-		withCollector(ctx, t, mock.Addr(), 0, time.Nanosecond, func(collector *UDPCollector) {
+		withCollector(ctx, t, mock.Addr(), 0, time.Nanosecond, func(collector *ThriftCollector) {
 			span := &jaeger.Span{
 				TraceIdLow:    monkit.NewId(),
 				SpanId:        monkit.NewId(),

@@ -85,7 +85,7 @@ func TestRegisterJaeger(t *testing.T) {
 		test := test
 		t.Run(test.e.operationName, func(t *testing.T) {
 			withAgent(t, func(agent *MockAgent) {
-				withCollector(ctx, t, agent.Addr(), 0, time.Nanosecond, func(collector *UDPCollector) {
+				withCollector(ctx, t, agent.Addr(), 0, time.Nanosecond, func(collector *ThriftCollector) {
 					r := monkit.NewRegistry()
 					RegisterJaeger(r, collector, Options{
 						Fraction: 1,
