@@ -48,7 +48,7 @@ const (
 )
 
 // ThriftCollector matches the TraceCollector interface, but sends serialized
-// jaeger.Span objects with the help of the registered tansport, instead of the Scribe protocol. See
+// jaeger.Span objects with the help of the registered transport, instead of the Scribe protocol. See
 // RedirectPackets for the UDP server-side code.
 type ThriftCollector struct {
 	mu               sync.Mutex

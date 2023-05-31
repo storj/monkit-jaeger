@@ -4,6 +4,7 @@
 package jaeger
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -17,31 +18,38 @@ import (
 
 // HTTPTransport sends Jaeger spans via HTTP.
 type HTTPTransport struct {
-	log  *zap.Logger
-	addr string
+	log      *zap.Logger
+	addr     string
+	protocol *thrift.TBinaryProtocol
+	buffer   *thrift.TMemoryBuffer
 }
 
 var _ Transport = &HTTPTransport{}
 
 // OpenHTTPTransport creates a new HTTP transport.
 func OpenHTTPTransport(ctx context.Context, log *zap.Logger, agentAddr string) (*HTTPTransport, error) {
+
+	t := thrift.NewTMemoryBuffer()
+	p := thrift.NewTBinaryProtocolTransport(t)
 	return &HTTPTransport{
-		log:  log,
-		addr: agentAddr,
+		log:      log,
+		addr:     agentAddr,
+		protocol: p,
+		buffer:   t,
 	}, nil
 
 }
 
 // Send sends out the Jaeger spans.
 func (u *HTTPTransport) Send(ctx context.Context, batch *jaeger.Batch) error {
-	t := thrift.NewTMemoryBuffer()
-	p := thrift.NewTBinaryProtocolTransport(t)
-	err := batch.Write(p)
+	u.buffer.Reset()
+	err := batch.Write(u.protocol)
 	if err != nil {
-		return err
+		return errs.Wrap(err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", u.addr, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", u.addr, bytes.NewReader(u.buffer.Bytes()))
+
 	if err != nil {
 		return errs.Wrap(err)
 	}
