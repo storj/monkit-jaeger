@@ -123,8 +123,8 @@ func (m *MockAgent) Serve() error {
 
 	handler := agent.NewAgentProcessor(m)
 	protocolFact := thrift.NewTCompactProtocolFactory()
-	trans := thrift.NewTMemoryBufferLen(maxPacketSize)
-	buf := make([]byte, maxPacketSize)
+	trans := thrift.NewTMemoryBufferLen(maxPacketSizeUDP)
+	buf := make([]byte, maxPacketSizeUDP)
 
 	close(m.started)
 	for !m.isClosed() {
