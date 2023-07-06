@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	"storj.io/common/context2"
-	"storj.io/monkit-jaeger/gen-go/agent"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
 
@@ -59,7 +58,6 @@ type ThriftCollector struct {
 	ch            chan *jaeger.Span
 	flushInterval time.Duration
 	process       *jaeger.Process // the information of which process is sending the spans
-	client        *agent.AgentClient
 
 	maxSpanBytes     int                   // the max bytes spans can take up to make sure we don't exceed maxPacketSize
 	maxPacketSize    int                   // the max number of bytes this instance of UDPCollector allows for a single UDP packet
