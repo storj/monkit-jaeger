@@ -3,7 +3,7 @@ module storj.io/monkit-jaeger
 go 1.13
 
 require (
-	github.com/apache/thrift v0.12.0
+	github.com/apache/thrift v0.16.0
 	github.com/spacemonkeygo/monkit/v3 v3.0.18
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0

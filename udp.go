@@ -49,7 +49,7 @@ func OpenUDPTransport(ctx context.Context, log *zap.Logger, agentAddr string, ma
 		return nil, err
 	}
 
-	protocolFactory := thrift.NewTCompactProtocolFactory()
+	protocolFactory := thrift.NewTCompactProtocolFactoryConf(nil)
 	thriftBuffer := thrift.NewTMemoryBufferLen(maxPacketSize)
 	client := agent.NewAgentClientFactory(thriftBuffer, protocolFactory)
 

@@ -2,6 +2,14 @@
 
 A plugin for http://github.com/spacemonkeygo/monkit that supports Jaeger.
 
+## development
+
+Thrift helpers are generated with:
+
+```
+thrift -r --gen 'go:package_prefix=storj.io/monkit-jaeger/gen-go/' agent.thrift
+```
+
 ## License
 
 Copyright (C) 2020 Storj Labs, Inc.

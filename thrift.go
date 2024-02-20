@@ -102,9 +102,9 @@ func NewThriftCollector(log *zap.Logger, agentAddr string, serviceName string, t
 
 	var protocolFactory thrift.TProtocolFactory
 	if tt == httpTransportType {
-		protocolFactory = thrift.NewTBinaryProtocolFactoryDefault()
+		protocolFactory = thrift.NewTBinaryProtocolFactoryConf(nil)
 	} else {
-		protocolFactory = thrift.NewTCompactProtocolFactory()
+		protocolFactory = thrift.NewTCompactProtocolFactoryConf(nil)
 	}
 	spanSizeBuffer := thrift.NewTMemoryBufferLen(estimateSpanSize)
 	spanSizeProtocol := protocolFactory.GetProtocol(spanSizeBuffer)
@@ -295,8 +295,10 @@ func (c *ThriftCollector) resetSpanBuffer() {
 }
 
 func calculateThriftSize(data thrift.TStruct, buffer *thrift.TMemoryBuffer, protocol thrift.TProtocol) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	buffer.Reset()
-	err := data.Write(protocol)
+	err := data.Write(ctx, protocol)
 	if err != nil {
 		return 0, err
 	}

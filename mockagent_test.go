@@ -122,7 +122,7 @@ func (m *MockAgent) Serve() error {
 	m.addr = m.conn.LocalAddr().String()
 
 	handler := agent.NewAgentProcessor(m)
-	protocolFact := thrift.NewTCompactProtocolFactory()
+	protocolFact := thrift.NewTCompactProtocolFactoryConf(nil)
 	trans := thrift.NewTMemoryBufferLen(maxPacketSizeUDP)
 	buf := make([]byte, maxPacketSizeUDP)
 

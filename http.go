@@ -30,7 +30,7 @@ var _ Transport = &HTTPTransport{}
 func OpenHTTPTransport(ctx context.Context, log *zap.Logger, agentAddr string) (*HTTPTransport, error) {
 
 	t := thrift.NewTMemoryBuffer()
-	p := thrift.NewTBinaryProtocolTransport(t)
+	p := thrift.NewTBinaryProtocolConf(t, nil)
 	return &HTTPTransport{
 		log:      log,
 		addr:     agentAddr,
@@ -43,7 +43,7 @@ func OpenHTTPTransport(ctx context.Context, log *zap.Logger, agentAddr string) (
 // Send sends out the Jaeger spans.
 func (u *HTTPTransport) Send(ctx context.Context, batch *jaeger.Batch) error {
 	u.buffer.Reset()
-	err := batch.Write(u.protocol)
+	err := batch.Write(ctx, u.protocol)
 	if err != nil {
 		return errs.Wrap(err)
 	}
