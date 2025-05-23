@@ -48,7 +48,7 @@ func (u *HTTPTransport) Send(ctx context.Context, batch *jaeger.Batch) error {
 		return errs.Wrap(err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", u.addr, bytes.NewReader(u.buffer.Bytes()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.addr, bytes.NewReader(u.buffer.Bytes()))
 
 	if err != nil {
 		return errs.Wrap(err)

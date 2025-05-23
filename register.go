@@ -8,7 +8,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spacemonkeygo/monkit/v3"
@@ -17,17 +19,84 @@ import (
 	"github.com/zeebo/mwc"
 
 	"storj.io/common/rpc/rpcstatus"
-	"storj.io/common/rpc/rpctracing"
 	"storj.io/monkit-jaeger/gen-go/jaeger"
 )
+
+const (
+	// CollectorTraceHostLimit is the upper limit of the number of unique trace
+	// host targets that will be cached.
+	CollectorTraceHostLimit = 10000
+)
+
+// ClosableTraceCollector is a TraceCollector that closes.
+type ClosableTraceCollector interface {
+	io.Closer
+	TraceCollector
+}
+
+// TraceCollectorFactory makes a collector based on a provided host target.
+type TraceCollectorFactory interface {
+	MakeCollector(targetHost string) (ClosableTraceCollector, error)
+}
 
 // Options represents the configuration for the register.
 type Options struct {
 	Fraction float64 // The Fraction of traces to observe.
 
-	collector TraceCollector
+	// If set and a trace has a trace host set, this will be called. If the
+	// CollectorFactory fails, the default collector will be used.
+	CollectorFactory TraceCollectorFactory
+	// This should be set to avoid DoS amplification.
+	CollectorFactoryHostMatch *regexp.Regexp
 
 	Excluded func(*monkit.Span) bool
+}
+
+type service struct {
+	Options
+	collector TraceCollector
+
+	collectors     sync.Map
+	collectorCount atomic.Int32
+}
+
+func (srv *service) getCollector(targetHost string) TraceCollector {
+	if srv.CollectorFactory == nil || targetHost == "" {
+		return srv.collector
+	}
+
+	if srv.CollectorFactoryHostMatch != nil &&
+		!srv.CollectorFactoryHostMatch.MatchString(targetHost) {
+		return srv.collector
+	}
+
+	if collector, ok := srv.collectors.Load(targetHost); ok {
+		return collector.(TraceCollector)
+	}
+
+	if srv.collectorCount.Load() > CollectorTraceHostLimit {
+		srv.collectors.Range(func(k any, v any) bool {
+			if srv.collectors.CompareAndDelete(k, v) {
+				srv.collectorCount.Add(-1)
+				_ = v.(ClosableTraceCollector).Close()
+			}
+			return false
+		})
+	}
+
+	collector, err := srv.CollectorFactory.MakeCollector(targetHost)
+	if err != nil {
+		return srv.collector
+	}
+
+	collectorAny, loaded := srv.collectors.LoadOrStore(targetHost, collector)
+	if loaded {
+		_ = collector.Close()
+	} else {
+		srv.collectorCount.Add(1)
+	}
+
+	return collectorAny.(TraceCollector)
 }
 
 type observedKey struct{}
@@ -37,7 +106,10 @@ type observedKey struct{}
 // it returns the unregister function.
 func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 	opts Options) func() {
-	opts.collector = collector
+	srv := &service{
+		Options:   opts,
+		collector: collector,
+	}
 
 	var traceMu sync.Mutex
 
@@ -47,10 +119,10 @@ func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 			t.Set(present.SampledCBKey, cb)
 		}
 
-		sampled, exists := t.Get(rpctracing.Sampled).(bool)
+		sampled, exists := t.Get(Sampled).(bool)
 		if !exists {
-			sampled = mwc.Rand().Float64() < opts.Fraction
-			t.Set(rpctracing.Sampled, sampled)
+			sampled = mwc.Rand().Float64() < srv.Fraction
+			t.Set(Sampled, sampled)
 		}
 
 		if !sampled {
@@ -65,7 +137,7 @@ func RegisterJaeger(reg *monkit.Registry, collector TraceCollector,
 		}
 		t.Set(observedKey{}, struct{}{})
 
-		t.ObserveSpans(spanFinishObserverFunc(opts.observeSpan))
+		t.ObserveSpans(spanFinishObserverFunc(srv.observeSpan))
 	}
 	return reg.ObserveTraces(cb)
 }
@@ -79,18 +151,21 @@ func (f spanFinishObserverFunc) Finish(s *monkit.Span, err error,
 	f(s, err, panicked, finish)
 }
 
-func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
+func (srv *service) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 	finish time.Time) {
 
-	if opts.Excluded != nil && opts.Excluded(s) {
+	if srv.Excluded != nil && srv.Excluded(s) {
 		return
 	}
+
+	trace := s.Trace()
+	traceHost, _ := trace.Get(TraceHost).(string)
 
 	startTime := s.Start().UnixNano() / 1000
 	duration := finish.Sub(s.Start())
 
 	js := &jaeger.Span{
-		TraceIdLow:    s.Trace().Id(),
+		TraceIdLow:    trace.Id(),
 		TraceIdHigh:   0,
 		OperationName: s.Func().FullName(),
 		SpanId:        s.Id(),
@@ -117,15 +192,16 @@ func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 
 	// only attach trace metadata to the root span
 	if !hasParent {
-		for k, v := range s.Trace().GetAll() {
+		for k, v := range trace.GetAll() {
 			key, ok := k.(string)
 			if !ok {
 				continue
 			}
 
-			if key == rpctracing.ParentID ||
-				key == rpctracing.Sampled ||
-				key == rpctracing.TraceID {
+			if key == ParentID ||
+				key == Sampled ||
+				key == TraceID ||
+				key == TraceHost {
 				continue
 			}
 			tags = append(tags, Tag{
@@ -164,7 +240,7 @@ func (opts Options) observeSpan(s *monkit.Span, spanErr error, panicked bool,
 	}
 	js.Tags = NewJaegerTags(tags)
 
-	opts.collector.Collect(js)
+	srv.getCollector(traceHost).Collect(js)
 }
 
 func newJaegerLogs(t time.Time, key, msg string) []*jaeger.Log {
@@ -220,6 +296,7 @@ func filterErr(spanErr error, panicked bool) error {
 		if netErr.Timeout() {
 			err = errs.Combine(err, errors.New("encountered a network timeout issue"))
 		}
+		//lint:ignore SA1019 while this is deprecated, there is no good replacement
 		if netErr.Temporary() {
 			err = errs.Combine(err, errors.New("encountered a temporary network issue"))
 		}
