@@ -69,6 +69,7 @@ type ThriftCollector struct {
 }
 
 // NewUDPCollector creates a UDPCollector that sends packets to jaeger agent, unless (!) you use different protocol in agentAddr.
+//
 // Deprecated: use NewThriftCollector instead. This exists only for compatibility reasons.
 func NewUDPCollector(log *zap.Logger, agentAddr string, serviceName string, tags []Tag, packetSize, queueSize int, flushInterval time.Duration) (*ThriftCollector, error) {
 	return NewThriftCollector(log, agentAddr, serviceName, tags, packetSize, queueSize, flushInterval)
@@ -209,6 +210,7 @@ func (c *ThriftCollector) Run(ctx context.Context) {
 }
 
 // Close gracefully shutdown the underlying udp connection, after remaining messages are sent out.
+//
 // Deprecated: cancelling the context of run will close the connection.
 func (c *ThriftCollector) Close() error {
 	return nil
