@@ -26,12 +26,12 @@ func RemoteTraceHandler(remoteInfo map[string]string) (trace *monkit.Trace, pare
 		return nil, 0
 	}
 
+	trace = monkit.NewTrace(traceID)
+	trace.Set(Sampled, sampled)
+
 	if traceHost, ok := remoteInfo[TraceHost]; ok {
 		trace.Set(TraceHost, traceHost)
 	}
-
-	trace = monkit.NewTrace(traceID)
-	trace.Set(Sampled, sampled)
 
 	return trace, parentID
 }
